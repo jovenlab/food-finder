@@ -6,14 +6,15 @@
 // user: there is nobody to click a button and no place to keep state. This page
 // has both a form and state, so it must also run in the browser.
 
-import { useCallback, useRef, useState } from "react";
-import { ApiError, searchProducts } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, fetchRecentSearches, searchProducts } from "@/lib/api";
 import { errorCodeOf, errorMessageKey, isRetryable } from "@/lib/errorMessages";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Language, TranslationKey } from "@/lib/i18n/translations";
-import type { SearchResponse } from "@/lib/types";
+import type { RecentSearch, SearchResponse } from "@/lib/types";
 import { SearchForm } from "@/components/SearchForm";
 import { LanguageSelector } from "@/components/LanguageSelector";
+import { RecentSearches } from "@/components/RecentSearches";
 import { ProductList } from "@/components/ProductList";
 import {
   ErrorPanel,
@@ -59,6 +60,44 @@ export default function HomePage() {
   // snapshot getting in the way.
   const inFlightRequest = useRef<AbortController | null>(null);
 
+  // The demo user's previous searches, loaded from MySQL via the backend.
+  const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([]);
+
+  // Fetches the history and quietly gives up if it fails.
+  //
+  // Recent searches are a convenience. If the backend or database is down the
+  // user should see the normal search error once - not a second complaint about
+  // a shortcut list they never asked for. So this swallows its errors.
+  const refreshRecentSearches = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const response = await fetchRecentSearches(signal);
+      setRecentSearches(response.searches);
+    } catch {
+      // Leave whatever was already on screen.
+    }
+  }, []);
+
+  // Load the history once, when the page first appears.
+  //
+  // Fetching data on mount is what useEffect is FOR: subscribing to something
+  // outside React and updating state when it answers. The setState lives inside
+  // the `.then` callback rather than the effect body, which is the distinction
+  // React draws - a value arriving later is not a cascading render.
+  //
+  // The cleanup aborts the request if the component unmounts mid-flight, so
+  // React never tries to set state on a component that is gone.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetchRecentSearches(controller.signal)
+      .then((response) => setRecentSearches(response.searches))
+      .catch(() => {
+        // A missing shortcut list is not worth telling the user about.
+      });
+
+    return () => controller.abort();
+  }, []);
+
   const runSearch = useCallback(
     async (rawTerm: string, searchLanguage: Language) => {
       const term = rawTerm.trim();
@@ -98,6 +137,12 @@ export default function HomePage() {
         setState(
           data.count === 0 ? { status: "empty", term } : { status: "success", data }
         );
+
+        // The backend has just written this search to MySQL, so reload the list
+        // to show it. We ask the server rather than adding it locally: the
+        // server owns the ordering and the de-duplication, and guessing here
+        // would eventually disagree with what is actually stored.
+        void refreshRecentSearches();
       } catch (error) {
         // We cancelled this ourselves because a newer search started. Showing an
         // error here would flash a failure on screen during normal typing.
@@ -120,7 +165,7 @@ export default function HomePage() {
         }
       }
     },
-    []
+    [refreshRecentSearches]
   );
 
   // The form and the example chips do not know about language; the page supplies
@@ -161,6 +206,8 @@ export default function HomePage() {
       </header>
 
       <SearchForm onSearch={handleSearch} isSearching={state.status === "loading"} />
+
+      <RecentSearches searches={recentSearches} onSelect={handleSearch} />
 
       {/* Exactly one branch below can ever be true, because `status` holds a
           single value. Reading this block tells you every screen the page has. */}

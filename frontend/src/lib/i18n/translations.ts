@@ -37,6 +37,7 @@ const en = {
 
   initialPrompt: "Search for a packaged food product to see its name, brand and photo.",
   tryLabel: "Try:",
+  recentSearches: "Recent searches",
 
   searchingFor: "Searching for “{term}”…",
   showingResults: "Showing {count} of {total} matches for “{term}”.",
@@ -82,6 +83,7 @@ const nl: Dictionary = {
   initialPrompt:
     "Zoek een verpakt voedingsmiddel om de naam, het merk en de foto te zien.",
   tryLabel: "Probeer:",
+  recentSearches: "Recente zoekopdrachten",
 
   searchingFor: "Bezig met zoeken naar “{term}”…",
   showingResults: "{count} van {total} resultaten voor “{term}”.",
@@ -120,6 +122,7 @@ const de: Dictionary = {
   initialPrompt:
     "Suchen Sie ein verpacktes Lebensmittel, um Name, Marke und Foto zu sehen.",
   tryLabel: "Versuchen Sie:",
+  recentSearches: "Letzte Suchanfragen",
 
   searchingFor: "Suche nach „{term}“…",
   showingResults: "{count} von {total} Treffern für „{term}“.",
@@ -160,6 +163,7 @@ const fr: Dictionary = {
   initialPrompt:
     "Recherchez un produit alimentaire emballé pour voir son nom, sa marque et sa photo.",
   tryLabel: "Essayez :",
+  recentSearches: "Recherches récentes",
 
   searchingFor: "Recherche de « {term} »…",
   showingResults: "{count} résultats sur {total} pour « {term} ».",

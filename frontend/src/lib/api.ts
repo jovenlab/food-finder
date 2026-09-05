@@ -4,7 +4,12 @@
 // about URLs, status codes or JSON parsing - it just calls searchProducts and
 // gets either products or an error it can display.
 
-import type { ApiErrorBody, Product, SearchResponse } from "./types";
+import type {
+  ApiErrorBody,
+  Product,
+  RecentSearchesResponse,
+  SearchResponse,
+} from "./types";
 
 // Set in .env.local. The NEXT_PUBLIC_ prefix is what allows the browser to read
 // it - variables without that prefix stay on the server. Never put a secret in
@@ -88,6 +93,33 @@ export async function searchProducts(
   }
 
   return body as SearchResponse;
+}
+
+// Loads the demo user's recent searches.
+//
+// This is a convenience feature, so the caller is expected to treat a failure as
+// "no history to show" rather than as a problem worth interrupting the user
+// about - see how page.tsx uses it.
+export async function fetchRecentSearches(
+  signal?: AbortSignal
+): Promise<RecentSearchesResponse> {
+  const url = new URL("/searches/recent", API_URL);
+
+  let response: Response;
+
+  try {
+    response = await fetch(url, { signal });
+  } catch {
+    throw new ApiError("Could not reach the server.", "NETWORK_ERROR", 0);
+  }
+
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw readErrorBody(body, response.status);
+  }
+
+  return body as RecentSearchesResponse;
 }
 
 // Re-exported so components can import their types from one place.

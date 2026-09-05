@@ -220,6 +220,60 @@ actually wrong.
 
 ---
 
+## `GET /searches/recent`
+
+The demo user's most recent searches, newest first. Used to offer one-click
+shortcuts in the interface.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `/searches/recent` |
+| **Auth** | none (public) |
+
+**Query parameters:** none. The backend decides whose history this is — there is
+one demo user, and the browser cannot ask for someone else's.
+
+### Response `200`
+
+```json
+{
+  "count": 2,
+  "searches": [
+    { "term": "Chocolate", "language": "en", "searchedAt": "2026-09-05T10:15:06.861Z" },
+    { "term": "yoghurt",   "language": "nl", "searchedAt": "2026-09-05T10:15:06.723Z" }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `term` | string | Exactly what was typed, trimmed. |
+| `language` | string | The language it was searched in. |
+| `searchedAt` | string | ISO 8601, UTC. Formatting is the browser's job, not ours. |
+
+At most 8 entries. Repeated terms appear once, at their most recent time —
+searching "chocolate" twice does not fill the list. Both rows still exist in the
+database; collapsing is a display concern.
+
+An empty history is `{ "count": 0, "searches": [] }` with status `200`.
+
+### When a search is recorded
+
+A row is written **after** Open Food Facts answers successfully:
+
+| Situation | Recorded? |
+|---|---|
+| Search returned products | yes |
+| Search returned zero products | **yes** — the user genuinely searched for it |
+| Blank or over-long term (`400`) | no — a validation mistake is not a search |
+| Open Food Facts failed (`502` / `504`) | no |
+
+Writing the row can never fail the request. If MySQL is unreachable the search
+still returns products and the failure is logged server-side.
+
+---
+
 ## Any unknown route
 
 ### Response `404`

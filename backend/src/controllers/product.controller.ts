@@ -11,6 +11,7 @@
 import type { Request, Response } from "express";
 import { badRequest } from "../errors/AppError";
 import { searchProducts } from "../services/openFoodFacts.service";
+import { recordSearchSafely } from "../services/search.service";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_LANGUAGES,
@@ -147,6 +148,21 @@ export async function searchProductsHandler(req: Request, res: Response) {
   // down, a 504 on timeout - travels to the central error handler on its own.
   // Express 5 forwards rejected promises for us, so there is no try/catch here.
   const result = await searchProducts(term, language);
+
+  // Record the search only now, AFTER Open Food Facts answered successfully.
+  //
+  // Everything that could reject the request - a blank term, an unsupported
+  // language, Open Food Facts being down - has already thrown by this point, so
+  // the table holds real searches rather than a log of validation mistakes.
+  // A search that found nothing IS recorded: the user genuinely searched for it.
+  //
+  // `recordSearchSafely` cannot throw. A database problem must not turn a
+  // successful product search into an error for the user.
+  //
+  // We await it so the row is written before we answer, which makes the
+  // behaviour predictable and easy to test. The cost is a local INSERT of a few
+  // milliseconds against an Open Food Facts call that takes seconds.
+  await recordSearchSafely(result.term, result.language);
 
   res.json(toSearchResponse(result));
 }

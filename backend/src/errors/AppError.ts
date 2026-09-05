@@ -41,6 +41,13 @@ export function badGateway(message: string, code = "EXTERNAL_API_ERROR") {
   return new AppError(502, message, code);
 }
 
+// 503 - we are running, but something we need right now is not available
+// (typically the database). Distinct from 500: nothing is broken in our code,
+// so the honest answer is "try later", not "we have a bug".
+export function serviceUnavailable(message: string, code = "SERVICE_UNAVAILABLE") {
+  return new AppError(503, message, code);
+}
+
 // 504 - a service we depend on did not answer in time.
 export function gatewayTimeout(message: string, code = "EXTERNAL_API_TIMEOUT") {
   return new AppError(504, message, code);

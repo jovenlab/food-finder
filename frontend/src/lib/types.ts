@@ -49,3 +49,17 @@ export type ApiErrorBody = {
     message: string;
   };
 };
+
+// One entry from GET /searches/recent - a search the demo user made before.
+export type RecentSearch = {
+  term: string;
+  language: string;
+  // ISO 8601 UTC string. The backend deliberately does not format dates: it
+  // does not know the reader's timezone or language, and the browser does.
+  searchedAt: string;
+};
+
+export type RecentSearchesResponse = {
+  count: number;
+  searches: RecentSearch[];
+};
