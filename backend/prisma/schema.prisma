@@ -1,0 +1,19 @@
+// Prisma schema — the single description of our database structure.
+//
+// Two blocks live here:
+//   generator  — tells Prisma to build a TypeScript client we can call from our code
+//   datasource — tells Prisma which kind of database we use
+//
+// The connection URL is NOT here on purpose. It is read from the DATABASE_URL
+// environment variable in prisma7.config.ts, so no password ever enters this file.
+//
+// Models (our tables) are added in Milestone 4.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
