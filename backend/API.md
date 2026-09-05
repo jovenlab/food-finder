@@ -220,6 +220,77 @@ actually wrong.
 
 ---
 
+## `GET /me`
+
+Who the application thinks the user is, what their subscription looks like, and
+what they are allowed to see.
+
+| | |
+|---|---|
+| **Method** | `GET` |
+| **URL** | `/me` |
+| **Auth** | none — there is one demo user and the backend decides who that is |
+
+**Query parameters:** none, deliberately. No endpoint accepts a user id from the
+browser.
+
+### Response `200`
+
+```json
+{
+  "user": {
+    "id": 1,
+    "name": "Demo User",
+    "email": "demo@foodfinder.local",
+    "hasStripeCustomer": false
+  },
+  "subscription": {
+    "status": "none",
+    "active": false,
+    "currentPeriodEnd": null,
+    "cancelAtPeriodEnd": false
+  },
+  "access": {
+    "nutrition": false
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `user.hasStripeCustomer` | boolean | Whether this user has been through Stripe Checkout before. A boolean, not the customer id — the browser has no use for the id. |
+| `subscription.status` | string | `"none"` if never subscribed, otherwise Stripe's own word (`active`, `trialing`, `past_due`, `canceled`, …). |
+| `subscription.active` | boolean | Whether the subscription is live **right now**. Not the same as `status === "active"` — see below. |
+| `subscription.currentPeriodEnd` | string \| null | ISO 8601, when the paid period ends. |
+| `subscription.cancelAtPeriodEnd` | boolean | Cancelled, but paid time remains. |
+| `access.nutrition` | boolean | Whether detailed nutritional values may be shown. |
+
+### `status` is not the same as `active`
+
+`active` is our decision; `status` is Stripe's label. They differ in two cases:
+
+- `status: "active"` with `currentPeriodEnd` in the past gives `active: false` —
+  a safety net against a webhook we never received.
+- `status: "trialing"` gives `active: true`.
+
+`cancelAtPeriodEnd: true` does **not** reduce access: the customer keeps it until
+the period they paid for runs out.
+
+### This endpoint describes access; it does not enforce it
+
+The frontend uses `access.nutrition` to decide whether to show a subscribe prompt
+or a nutrition panel. That is presentation only. The search endpoint performs its
+own check (Milestone 16) — a browser can ignore anything it is told.
+
+### Error responses
+
+| Status | `code` | Cause |
+|---|---|---|
+| `503` | `DEMO_USER_MISSING` | The database has not been seeded. Run `npm run db:seed`. |
+| `503` | `DATABASE_UNAVAILABLE` | MySQL cannot be reached. |
+
+---
+
 ## `GET /searches/recent`
 
 The demo user's most recent searches, newest first. Used to offer one-click
