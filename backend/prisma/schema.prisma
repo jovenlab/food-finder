@@ -1,13 +1,11 @@
-// Prisma schema — the single description of our database structure.
+// Prisma schema - the single description of our database structure.
 //
-// Two blocks live here:
-//   generator  — tells Prisma to build a TypeScript client we can call from our code
-//   datasource — tells Prisma which kind of database we use
+// Two configuration blocks:
+//   generator  - tells Prisma to build a TypeScript client we can call from our code
+//   datasource - tells Prisma which kind of database we use
 //
 // The connection URL is NOT here on purpose. It is read from the DATABASE_URL
 // environment variable in prisma7.config.ts, so no password ever enters this file.
-//
-// Models (our tables) are added in Milestone 4.
 
 generator client {
   provider = "prisma-client"
@@ -16,4 +14,96 @@ generator client {
 
 datasource db {
   provider = "mysql"
+}
+
+// ---------------------------------------------------------------------------
+// User - who is using the application.
+//
+// The assignment specifies a single demo user, so there is exactly one row here.
+// It is still a real table because searches and subscriptions need something to
+// point at, and because swapping in real authentication later then requires no
+// changes to the other two tables.
+// ---------------------------------------------------------------------------
+model User {
+  id    Int    @id @default(autoincrement())
+  email String @unique @db.VarChar(255)
+  name  String @db.VarChar(100)
+
+  // Stripe assigns its own customer identifier (looks like "cus_ABC123").
+  // Null until the user first goes through Stripe Checkout.
+  stripeCustomerId String? @unique @db.VarChar(255)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations. These two lines create no columns in the User table; they are
+  // how we navigate from a user to their rows in the other tables.
+  searches      Search[]
+  subscriptions Subscription[]
+}
+
+// ---------------------------------------------------------------------------
+// Subscription - the local copy of what Stripe knows about a subscription.
+//
+// Stripe is the source of truth. This table is a cache that our backend can read
+// quickly, kept up to date by webhooks. We store it locally so that answering
+// "may this user see nutrition data?" is a fast local query rather than an API
+// call to Stripe on every single request.
+//
+// A user can have several rows over time: cancelling and subscribing again
+// produces a brand-new subscription object in Stripe, with a new id.
+// ---------------------------------------------------------------------------
+model Subscription {
+  id Int @id @default(autoincrement())
+
+  // Stripe's identifier (looks like "sub_ABC123"). Unique, because it is what
+  // an incoming webhook uses to find the row it should update.
+  stripeSubscriptionId String @unique @db.VarChar(255)
+
+  // Stripe's status string: "active", "trialing", "past_due", "canceled", ...
+  // Stored as text rather than a database enum on purpose - see the README.
+  status String @db.VarChar(50)
+
+  // When the currently paid-for period ends. Null if Stripe did not send it.
+  currentPeriodEnd DateTime?
+
+  // True when the user has cancelled but still has paid time remaining.
+  cancelAtPeriodEnd Boolean @default(false)
+
+  // Foreign key: which user this subscription belongs to.
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Index for the question we ask most often:
+  // "what are this user's subscriptions?"
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Search - one row per search the user performs.
+//
+// Satisfies the "store recent searches in MySQL" requirement. We keep the
+// language because the same term returns different results per language, so a
+// search is only meaningful together with the language it was made in.
+// ---------------------------------------------------------------------------
+model Search {
+  id Int @id @default(autoincrement())
+
+  // What the user typed.
+  term String @db.VarChar(255)
+
+  // Which language was selected: "en", "nl", "de" or "fr".
+  language String @db.VarChar(5)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // Index for the question we ask most often:
+  // "this user's most recent searches, newest first".
+  @@index([userId, createdAt])
 }

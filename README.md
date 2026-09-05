@@ -25,6 +25,7 @@ elements in the UI.
 - [Setup](#setup)
 - [Running the application](#running-the-application)
 - [Environment variables](#environment-variables)
+- [Database schema](#database-schema)
 - [Working with the database](#working-with-the-database)
 - [Technical decisions](#technical-decisions)
 - [Known limitations](#known-limitations)
@@ -91,6 +92,7 @@ Browser  ->  Express route  ->  Open Food Facts  ->  transform response
 | Language | TypeScript | 7.0 (backend) / 5 (frontend) |
 | ORM | Prisma | 7.10.0 |
 | Database | MySQL | 8.0.46 |
+| MySQL driver | @prisma/adapter-mariadb | 7.10.0 |
 | Payments | Stripe (test mode) | not yet integrated |
 | External data | Open Food Facts API | not yet integrated |
 
@@ -109,10 +111,11 @@ Built and verified:
 - [x] MySQL database and a dedicated, least-privilege application user
 - [x] Prisma installed and connected to MySQL (connection and write access verified)
 - [x] All configuration read from environment variables
+- [x] Database schema designed and applied via a Prisma migration
+- [x] Demo user created by a repeatable seed script
 
 Not built yet:
 
-- [ ] Database tables (no migration has been run yet)
 - [ ] Open Food Facts integration
 - [ ] Product search endpoint and search UI
 - [ ] Internationalization (EN / NL / DE / FR)
@@ -131,9 +134,13 @@ food-finder/
 ├─ .gitignore
 ├─ backend/                     Express API - the only part that holds secrets
 │  ├─ src/
-│  │  └─ index.ts               Express app, middleware, routes
+│  │  ├─ index.ts               Express app, middleware, routes
+│  │  ├─ prisma.ts              The one shared database client
+│  │  └─ generated/prisma/      Prisma's generated client - not committed
 │  ├─ prisma/
-│  │  └─ schema.prisma          Database structure (models added in Milestone 4)
+│  │  ├─ schema.prisma          Database structure: User, Subscription, Search
+│  │  ├─ seed.ts                Creates the demo user
+│  │  └─ migrations/            Applied schema changes, as SQL
 │  ├─ db/
 │  │  └─ 01-create-database.sql One-time MySQL setup, run manually in Workbench
 │  ├─ prisma7.config.ts         Prisma CLI config; reads DATABASE_URL from the env
@@ -199,15 +206,24 @@ cp .env.example .env.local
 
 Edit `backend/.env` and put your chosen password into **both** connection URLs.
 
-### 4. Verify the database connection
+### 4. Create the tables and the demo user
 
 ```bash
 cd backend
+npm run db:migrate     # applies prisma/migrations - creates the three tables
+npm run db:seed        # inserts the demo user
+```
+
+Expected output ends with `Demo user ready: id=1, email=demo@foodfinder.local`.
+
+Verify at any time with:
+
+```bash
 npx prisma migrate status
 ```
 
-Expected: `Datasource "db": MySQL database "food_finder" at "localhost:3306"`.
-It will also report `No migration found` - correct, until the first migration exists.
+Expected: `Datasource "db": MySQL database "food_finder" at "localhost:3306"` and
+`Database schema is up to date!`.
 
 ---
 
@@ -281,6 +297,65 @@ Stripe variables are added in a later milestone.
 
 ---
 
+## Database schema
+
+Three tables, created by `prisma/migrations/`.
+
+```text
+       User                          Subscription
++---------------------+       +--------------------------+
+| id             (PK) |<---+  | id                  (PK) |
+| email    (UNIQUE)   |    +--| userId              (FK) |
+| name                |       | stripeSubscriptionId (U) |
+| stripeCustomerId (U)|       | status                   |
+| createdAt           |       | currentPeriodEnd         |
+| updatedAt           |       | cancelAtPeriodEnd        |
++---------------------+       | createdAt / updatedAt    |
+          ^                   +--------------------------+
+          |
+          |                          Search
+          |                +--------------------------+
+          +----------------| userId              (FK) |
+                           | id                  (PK) |
+                           | term                     |
+                           | language                 |
+                           | createdAt                |
+                           +--------------------------+
+```
+
+**`User`** - identity only. One row: the demo user. `stripeCustomerId` is null
+until the user first goes through Stripe Checkout.
+
+**`Subscription`** - a local copy of what Stripe knows, kept current by webhooks.
+Stripe remains the source of truth; this table exists so that answering "may this
+user see nutrition data?" is a fast local query instead of an API call to Stripe
+on every request.
+
+**`Search`** - one row per search performed, satisfying the "store recent searches
+in MySQL" requirement.
+
+| Term | Meaning |
+|---|---|
+| **Primary key (PK)** | The column that uniquely identifies a row. Ours are `INT AUTO_INCREMENT`, so MySQL assigns 1, 2, 3, ... |
+| **Foreign key (FK)** | A column pointing at another table's primary key. MySQL refuses to store a `Search.userId` that has no matching `User.id`, so orphaned rows cannot exist. |
+| **Unique index (U)** | Guarantees no two rows share a value. `Subscription.stripeSubscriptionId` is unique so an incoming webhook matches exactly one row. |
+| **Index** | A lookup structure that makes a common query fast. `Search(userId, createdAt)` matches "this user's searches, newest first". |
+| **`ON DELETE CASCADE`** | Deleting a user automatically deletes their searches and subscriptions, instead of leaving rows pointing at a user that no longer exists. |
+
+### Inspecting it in MySQL Workbench
+
+```sql
+USE food_finder;
+
+SHOW TABLES;
+DESCRIBE user;
+SELECT * FROM user;
+SELECT * FROM search ORDER BY createdAt DESC;
+
+-- Foreign keys and indexes
+SHOW CREATE TABLE search;
+```
+
 ## Working with the database
 
 Prisma and MySQL Workbench are two doors into the same database:
@@ -307,10 +382,12 @@ Useful commands, all run from `backend/`:
 
 | Command | What it does |
 |---|---|
+| `npm run db:migrate` | Creates and applies a migration from the current schema |
+| `npm run db:seed` | Inserts the demo user (safe to run repeatedly) |
+| `npm run db:studio` | Opens a browser-based table viewer |
 | `npx prisma migrate status` | Shows which migrations have been applied |
-| `npx prisma migrate dev --name <name>` | Creates and applies a new migration from the schema |
-| `npx prisma studio` | Opens a browser-based table viewer |
 | `npx prisma generate` | Regenerates the typed client after a schema change |
+| `npx prisma migrate reset` | Drops everything, re-applies all migrations, re-seeds |
 
 In Workbench, refresh the **SCHEMAS** sidebar after any migration to see the
 resulting tables.
@@ -346,6 +423,35 @@ different database without edits.
 `schema.prisma` and into a config file that reads `process.env`. The schema
 therefore describes structure only, and can be read and shared freely.
 
+**A `Subscription` table rather than a boolean on `User`.** A boolean cannot say
+*why* access was granted or *when* it expires, and cannot be reconciled with
+Stripe. The table stores Stripe's own subscription id, so a webhook can find
+exactly the row it needs to update.
+
+**One user, many subscriptions.** Cancelling and re-subscribing produces a
+brand-new subscription object in Stripe with a new id. With a one-to-one design
+the webhook handler would have to decide whether to overwrite the previous row.
+One-to-many makes the handler a plain "insert or update by
+`stripeSubscriptionId`", and keeps the history.
+
+**`Subscription.status` stored as text, not a database enum.** Stripe's status
+values (`active`, `trialing`, `past_due`, `canceled`, ...) belong to Stripe, and
+Stripe can add new ones. A MySQL `ENUM` would reject an unknown value and make the
+webhook fail; text accepts whatever Stripe sends, and the application decides
+which values grant access.
+
+**Integer primary keys.** Simple, small, and readable while inspecting tables in
+Workbench. UUIDs would matter if ids were exposed publicly or generated across
+several machines; neither applies here.
+
+**A seed script instead of inserting the demo user by hand.** `prisma/seed.ts`
+uses an `upsert`, so it is safe to run repeatedly and any developer can recreate
+an identical starting state.
+
+**`@prisma/adapter-mariadb` as the MySQL driver.** Prisma 7 connects through a
+"driver adapter" rather than a bundled engine. The MariaDB adapter is Prisma's
+supported driver for MySQL 8.
+
 *(Decisions about Open Food Facts, internationalization and Stripe are added as
 those milestones are completed.)*
 
@@ -360,6 +466,10 @@ those milestones are completed.)*
   dependencies, and the application runs locally against a local database, so the
   practical risk here is low. Deliberately left as-is and documented rather than
   silently patched over.
+- **Table names are lower-cased by MySQL on Windows.** The schema defines `User`,
+  but Windows MySQL stores it as `user` (`lower_case_table_names=1`). Queries work
+  either way because Windows MySQL is case-insensitive, but a dump taken here would
+  need care before being restored on a case-sensitive Linux server.
 - The application is designed for **local development**. There is no deployment
   configuration, HTTPS, or production hardening.
 - Everything listed under [Current status](#current-status) as unbuilt is
@@ -378,8 +488,8 @@ Development follows small, individually testable milestones.
 | 1 | Verify development environment | done |
 | 2 | Frontend + backend project structure | done |
 | 3 | MySQL database and Prisma connection | done |
-| 4 | Design the database and run the first migration | next |
-| 5 | Backend structure: routes, services, error handling | planned |
+| 4 | Design the database and run the first migration | done |
+| 5 | Backend structure: routes, services, error handling | next |
 | 6-7 | Open Food Facts integration and search endpoint | planned |
 | 8-9 | Search UI, loading and error states | planned |
 | 10 | Internationalization (EN / NL / DE / FR) | planned |
