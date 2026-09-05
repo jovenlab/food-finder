@@ -6,15 +6,23 @@
 // user: there is nobody to click a button and no place to keep state. This page
 // has both a form and state, so it must also run in the browser.
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, fetchRecentSearches, searchProducts } from "@/lib/api";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  ApiError,
+  createCheckoutSession,
+  fetchMe,
+  fetchRecentSearches,
+  searchProducts,
+} from "@/lib/api";
 import { errorCodeOf, errorMessageKey, isRetryable } from "@/lib/errorMessages";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { Language, TranslationKey } from "@/lib/i18n/translations";
-import type { RecentSearch, SearchResponse } from "@/lib/types";
+import type { MeResponse, RecentSearch, SearchResponse } from "@/lib/types";
 import { SearchForm } from "@/components/SearchForm";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { RecentSearches } from "@/components/RecentSearches";
+import { SubscriptionPanel } from "@/components/SubscriptionPanel";
+import { CheckoutReturn, type CheckoutOutcome } from "@/components/CheckoutReturn";
 import { ProductList } from "@/components/ProductList";
 import {
   ErrorPanel,
@@ -96,6 +104,93 @@ export default function HomePage() {
       });
 
     return () => controller.abort();
+  }, []);
+
+  // ---------------------------------------------------------------------
+  // Subscription
+  // ---------------------------------------------------------------------
+
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  // How the page reports what happened after Stripe sent the user back.
+  //   cancelled     - the user backed out; nothing was charged
+  //   confirming    - payment taken, waiting for Stripe to tell OUR server
+  //   confirmed     - the server now reports an active subscription
+  //   stillWaiting  - we gave up polling; the webhook has not arrived yet
+  //
+  // This lives in page state rather than being read from the URL, because the
+  // URL is scrubbed the moment we handle it.
+  const [confirmState, setConfirmState] =
+    useState<"none" | "cancelled" | "confirming" | "confirmed" | "stillWaiting">("none");
+
+  // Load who we are on mount, same pattern as the search history.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetchMe(controller.signal)
+      .then(setMe)
+      .catch(() => {
+        // Leave `me` as null; the subscription panel simply does not render.
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const handleSubscribe = useCallback(async () => {
+    setCheckoutError(null);
+    setIsStartingCheckout(true);
+
+    try {
+      const session = await createCheckoutSession();
+
+      // Leave our site for Stripe's hosted payment page. Card details are
+      // entered there, on Stripe's domain - they never touch our server.
+      window.location.href = session.url;
+    } catch (error) {
+      setCheckoutError(
+        error instanceof ApiError ? error.message : "Could not start checkout."
+      );
+      setIsStartingCheckout(false);
+    }
+    // No `finally`: on success the browser is navigating away, and re-enabling
+    // the button would just let someone click it twice on the way out.
+  }, []);
+
+  // Called when Stripe sends the browser back to us.
+  const handleCheckoutOutcome = useCallback(async (outcome: CheckoutOutcome) => {
+    if (outcome === "cancelled") {
+      setConfirmState("cancelled");
+      return;
+    }
+
+    // The user came back from a "successful" Checkout. That is NOT proof of
+    // anything: the success URL is just a URL, and anyone can visit it. So we
+    // ask OUR server, repeatedly, and only believe it.
+    //
+    // The server only learns the truth when Stripe sends it a webhook, which is
+    // Milestone 15. Until that exists this will poll and then give up - which is
+    // the correct behaviour, and exactly why webhooks are needed.
+    setConfirmState("confirming");
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        const latest = await fetchMe();
+        setMe(latest);
+
+        if (latest.subscription.active) {
+          setConfirmState("confirmed");
+          return;
+        }
+      } catch {
+        // Ignore one failed poll and try again.
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    setConfirmState("stillWaiting");
   }, []);
 
   const runSearch = useCallback(
@@ -204,6 +299,40 @@ export default function HomePage() {
 
         <LanguageSelector onLanguageChange={handleLanguageChange} />
       </header>
+
+      {/* useSearchParams forces everything up to the nearest Suspense boundary
+          to be client-rendered, so the boundary sits tightly around this one
+          small component rather than the whole page. */}
+      <Suspense fallback={null}>
+        <CheckoutReturn onOutcome={handleCheckoutOutcome} />
+      </Suspense>
+
+      {confirmState !== "none" && (
+        <p
+          role="status"
+          className={`mb-4 rounded-lg p-3 text-sm ${
+            confirmState === "confirmed"
+              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : confirmState === "cancelled"
+                ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                : "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+          }`}
+        >
+          {confirmState === "cancelled" && t("checkoutCancelled")}
+          {confirmState === "confirming" && t("checkoutConfirming")}
+          {confirmState === "confirmed" && t("checkoutConfirmed")}
+          {confirmState === "stillWaiting" && t("checkoutStillWaiting")}
+        </p>
+      )}
+
+      <div className="mb-6">
+        <SubscriptionPanel
+          me={me}
+          onSubscribe={handleSubscribe}
+          isStarting={isStartingCheckout}
+          errorMessage={checkoutError}
+        />
+      </div>
 
       <SearchForm onSearch={handleSearch} isSearching={state.status === "loading"} />
 

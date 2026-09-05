@@ -263,3 +263,51 @@ sit in. The risk in this deployment is negligible.
 **Honest limitation.** In a real deployment with a remote database this would
 need resolving before going live. Recorded here rather than quietly ignored.
 
+---
+
+## 16. Checkout returns a URL, and returning from Stripe proves nothing
+
+**Decision.** `POST /checkout/session` responds with a URL for the frontend to
+navigate to, rather than issuing a `302`. And the `success_url` return is treated
+as "payment probably happened", never as "subscribed".
+
+**Why the URL and not a redirect.** A `302` inside `fetch()` is followed by the
+browser transparently, so the page never sees it and cannot show an error if
+something failed. Returning the URL keeps the decision in the caller's hands.
+
+**Why the return is not proof.** `success_url` is an ordinary URL. A user can
+type it, bookmark it, or share it; they can also close the tab before paying, or
+the card can fail after the redirect. None of that is under our control.
+Verified: visiting `/?checkout=success` directly grants no access at all — the
+page shows "waiting for confirmation" and then "still waiting".
+
+The only trustworthy signal is Stripe telling our **server** what happened, with
+a signature we verify. That is Milestone 15.
+
+---
+
+## 17. The already-subscribed check lives on the server
+
+**Decision.** `POST /checkout/session` returns `409 ALREADY_SUBSCRIBED` when a
+live subscription exists, in addition to the frontend hiding the button.
+
+**Why.** Hiding a button prevents an honest mistake, not a deliberate request.
+Without the server check, a direct `POST` would create a second live
+subscription and bill the customer twice a month. Verified with a live row
+present: `409`.
+
+---
+
+## 18. The checkout banner is page state, not URL state
+
+**Decision.** `CheckoutReturn` reads `?checkout=`, reports it upward, scrubs the
+URL, and renders nothing. The banner is rendered by the page from its own state.
+
+**Why.** Found by testing: scrubbing the URL clears `useSearchParams`, so a
+banner rendered from that value appeared for one frame and vanished. Scrubbing
+matters too — without it, a refresh would replay "payment received" forever.
+
+`useSearchParams` also forces everything up to the nearest `<Suspense>` boundary
+to be client-rendered, so the boundary is wrapped tightly around this one small
+component. The page remains statically prerendered.
+

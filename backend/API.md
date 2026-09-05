@@ -291,6 +291,55 @@ own check (Milestone 16) — a browser can ignore anything it is told.
 
 ---
 
+## `POST /checkout/session`
+
+Starts a monthly subscription by creating a Stripe Checkout session.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `/checkout/session` |
+| **Auth** | none — there is one demo user and the backend decides who that is |
+
+**Body:** none. **Query parameters:** none.
+
+`POST`, not `GET`, because it creates something on Stripe's side: a browser or
+proxy may fetch a `GET` at any time, but never a `POST`.
+
+### Response `200`
+
+```json
+{
+  "url": "https://checkout.stripe.com/c/pay/cs_test_...",
+  "sessionId": "cs_test_..."
+}
+```
+
+The frontend navigates to `url`. We return the URL rather than a `302` so the
+caller can show an error instead when something goes wrong — a redirect would be
+followed inside `fetch()`, where the page cannot see it.
+
+The session is created with `mode: "subscription"`; the monthly interval comes
+from the Price configured in Stripe.
+
+### What this endpoint does NOT do
+
+It does not grant access. Creating a session means "the user is about to try to
+pay". The subscription becomes real only when Stripe tells our server via a
+webhook (Milestone 15). Returning to `success_url` proves nothing — anyone can
+visit that URL.
+
+### Error responses
+
+| Status | `code` | Cause |
+|---|---|---|
+| `409` | `ALREADY_SUBSCRIBED` | There is already a live subscription. Enforced server-side, not just by hiding the button. |
+| `503` | `STRIPE_NOT_CONFIGURED` | `STRIPE_SECRET_KEY` or `STRIPE_PRICE_ID` is missing. |
+| `503` | `DEMO_USER_MISSING` | The database has not been seeded. |
+| `502` | `STRIPE_NO_CHECKOUT_URL` | Stripe returned a session without a URL. |
+
+---
+
 ## `GET /searches/recent`
 
 The demo user's most recent searches, newest first. Used to offer one-click

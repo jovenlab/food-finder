@@ -63,3 +63,31 @@ export type RecentSearchesResponse = {
   count: number;
   searches: RecentSearch[];
 };
+
+// GET /me - who we are, and what we may see.
+export type MeResponse = {
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    hasStripeCustomer: boolean;
+  };
+  subscription: {
+    // "none" if never subscribed, otherwise Stripe's own word.
+    status: string;
+    // OUR decision about whether it is live right now. Not the same as
+    // status === "active" - see backend/API.md.
+    active: boolean;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+  };
+  access: {
+    nutrition: boolean;
+  };
+};
+
+// POST /checkout/session
+export type CheckoutSessionResponse = {
+  url: string;
+  sessionId: string;
+};

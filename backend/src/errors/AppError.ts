@@ -33,6 +33,13 @@ export function notFound(message: string, code = "NOT_FOUND") {
   return new AppError(404, message, code);
 }
 
+// 409 - the request is valid, but conflicts with the state things are already
+// in. "Subscribe" when already subscribed is the classic example: nothing is
+// malformed, it just does not make sense right now.
+export function conflict(message: string, code = "CONFLICT") {
+  return new AppError(409, message, code);
+}
+
 // 502 - WE are fine, but a service we depend on (Open Food Facts, Stripe)
 // answered with an error or with something we could not understand.
 // Distinguishing this from a 500 matters: 500 says "our bug", 502 says
