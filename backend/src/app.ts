@@ -30,6 +30,24 @@ export function createApp() {
   // the server explicitly allows that origin. This is CORS.
   app.use(cors({ origin: env.frontendOrigin }));
 
+  // ---------------------------------------------------------------------
+  // The Stripe webhook needs the RAW request body, and needs it BEFORE the
+  // JSON parser gets to it.
+  //
+  // Stripe signs the exact bytes it sent. express.json() parses those bytes
+  // into an object and throws them away; re-serialising the object produces
+  // different bytes - a different key order or one space is enough - and the
+  // signature no longer matches. Verification would fail on every genuine
+  // request, which is a maddening bug to diagnose.
+  //
+  // Registering express.raw() for this one path first keeps the body as a
+  // Buffer. express.json() below then skips it, because the body is already
+  // parsed. Every other route still gets normal JSON parsing.
+  //
+  // This ordering is load-bearing. Moving the line below express.json() breaks
+  // Stripe webhooks completely.
+  app.use("/stripe/webhook", express.raw({ type: "application/json" }));
+
   // Turn a JSON request body into a JavaScript object on `req.body`.
   // If the body is not valid JSON this throws, and our error handler turns it
   // into a 400 Bad Request.

@@ -394,6 +394,65 @@ still returns products and the failure is logged server-side.
 
 ---
 
+## `POST /stripe/webhook`
+
+Called by **Stripe**, never by a person or by our frontend. This is how the
+backend learns that a subscription was created, changed or cancelled.
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **URL** | `/stripe/webhook` |
+| **Body** | Raw JSON, signed by Stripe |
+| **Required header** | `stripe-signature` |
+
+### Signature verification
+
+Every request is verified against `STRIPE_WEBHOOK_SECRET` before a single field
+is read. This endpoint is publicly reachable — without verification, anyone could
+POST a fake `customer.subscription.created` and grant themselves a subscription.
+
+Verification needs the **raw request body**: Stripe signs exact bytes, and
+re-serialising parsed JSON produces different ones. `app.ts` therefore registers
+`express.raw()` for this path **before** `express.json()`. That ordering is
+load-bearing.
+
+### Events handled
+
+| Event | Effect |
+|---|---|
+| `checkout.session.completed` | Fetches the new subscription from Stripe and stores it |
+| `customer.subscription.created` | Upserts the subscription row |
+| `customer.subscription.updated` | Upserts — covers status changes, cancellation, renewal |
+| `customer.subscription.deleted` | Upserts with Stripe's `canceled` status |
+| anything else | Acknowledged with `200` and ignored |
+
+### Status codes are instructions to Stripe
+
+| Status | Meaning to Stripe | When |
+|---|---|---|
+| `200` | Understood, do not resend | Handled, ignored, or not our user |
+| `400` | Do not retry | Missing/invalid signature, tampered body, stale timestamp |
+| `500` | **Please retry** | We failed to process it (e.g. database down) |
+
+Returning `500` on a processing failure is deliberate: the payment is real and
+our records are behind, so we want Stripe to try again.
+
+### Idempotency
+
+Stripe retries until it gets a 2xx and may deliver the same event more than once.
+Every write is an `upsert` keyed on Stripe's subscription id, so a replay produces
+an identical row. Verified: sending the same event twice leaves exactly one row.
+
+### `current_period_end` lives on the subscription's items
+
+Stripe moved period boundaries off the Subscription object and onto
+`subscription.items.data[]`. Reading `subscription.current_period_end` yields
+`undefined`, which would store `null` and silently disable the expiry safety net
+described under `GET /me`.
+
+---
+
 ## Any unknown route
 
 ### Response `404`

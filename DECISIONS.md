@@ -311,3 +311,67 @@ matters too — without it, a refresh would replay "payment received" forever.
 to be client-rendered, so the boundary is wrapped tightly around this one small
 component. The page remains statically prerendered.
 
+---
+
+## 19. The webhook route must parse the raw body, before `express.json()`
+
+**Decision.** `app.ts` registers `express.raw({ type: "application/json" })` for
+`/stripe/webhook` **before** the global `express.json()`.
+
+**Why.** Stripe signs the exact bytes it sent. `express.json()` parses those
+bytes into an object and discards them; re-serialising produces different bytes —
+a different key order or one extra space is enough — and the signature no longer
+matches. Verification would then fail on every genuine request, which is a
+miserable bug to diagnose because nothing looks wrong.
+
+This ordering is load-bearing and commented as such in `app.ts`.
+
+---
+
+## 20. Webhook signature verification, and what the status codes mean
+
+**Decision.** Every webhook is verified with `constructEvent` before any field is
+read. The response status is chosen for Stripe's retry logic, not for a human:
+`200` handled, `400` never retry, `500` please retry.
+
+**Why verification matters.** `POST /stripe/webhook` is a public URL. Without a
+signature check it is a free-subscription button: anyone could post
+`{"type":"customer.subscription.created", ...}` and grant themselves access.
+`constructEvent` also rejects old timestamps, which blocks replaying a genuine
+captured request.
+
+Verified against five attacks — no signature, garbage signature, a body tampered
+with after signing, a signature made with the wrong secret, and a correctly
+signed request with an hour-old timestamp. All five returned `400` and left the
+database untouched.
+
+---
+
+## 21. Webhook handling is idempotent
+
+**Decision.** Every write is `prisma.subscription.upsert`, keyed on Stripe's
+subscription id.
+
+**Why.** Stripe retries until it receives a 2xx and can deliver the same event
+more than once even after success. An `INSERT` would create duplicate rows;
+an upsert re-writes the same row with the same values. Verified: replaying an
+event leaves exactly one row.
+
+---
+
+## 22. `current_period_end` is read from the subscription's ITEMS
+
+**Decision.** `readCurrentPeriodEnd()` reads
+`subscription.items.data[0].current_period_end`, not
+`subscription.current_period_end`.
+
+**Why.** Stripe moved period boundaries onto subscription items, so a
+subscription with several items can bill them on different cycles. The old
+top-level field no longer exists in this SDK version. Reading it returns
+`undefined`, which stores `null` — and a null `currentPeriodEnd` disables the
+"has this expired?" safety net from decision 11, silently granting access
+forever after one missed cancellation webhook.
+
+Found by checking the SDK's type definitions before writing the code rather than
+after debugging it.
+
