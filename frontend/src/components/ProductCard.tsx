@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Product } from "@/lib/types";
 
 // A shared placeholder for "there is no picture".
@@ -27,23 +27,54 @@ function ProductImage({ src, alt }: { src: string | null; alt: string }) {
   // sometimes 404, and without this the card would show a broken-image icon.
   const [hasFailed, setHasFailed] = useState(false);
 
+  // Product photos come from the Open Food Facts CDN and measurably take several
+  // seconds. Without this the card would show an empty white rectangle for that
+  // whole time, which reads as "broken" rather than "loading".
+  const [isLoading, setIsLoading] = useState(true);
+
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  // A cached image can finish loading before React attaches the onLoad handler,
+  // and then onLoad never fires and the shimmer would stay forever. `complete`
+  // is the browser's own "this image is already done" flag, so we check it once
+  // after mounting.
+  useEffect(() => {
+    if (imageRef.current?.complete) {
+      setIsLoading(false);
+    }
+  }, [src]);
+
   if (src === null || hasFailed) {
     return <ImagePlaceholder />;
   }
 
   return (
-    // We use a plain <img> instead of next/image on purpose. next/image would
-    // proxy every photo through our own server to optimise it; Open Food Facts
-    // already serves these from a CDN, and routing them through us would add a
-    // slow hop and require whitelisting their domain. Simpler is better here.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      onError={() => setHasFailed(true)}
-      className="h-40 w-full rounded-md bg-white object-contain"
-    />
+    <div className="relative h-40 w-full">
+      {/* The shimmer sits BEHIND the image rather than replacing it, so the
+          image can fade in on top without the layout shifting. */}
+      {isLoading && (
+        <div
+          className="absolute inset-0 animate-pulse rounded-md bg-gray-200 dark:bg-gray-800"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* We use a plain <img> instead of next/image on purpose. next/image would
+          proxy every photo through our own server to optimise it; Open Food Facts
+          already serves these from a CDN, and routing them through us would add a
+          slow hop and require whitelisting their domain. Simpler is better here. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        ref={imageRef}
+        src={src}
+        alt={alt}
+        loading="lazy"
+        onLoad={() => setIsLoading(false)}
+        onError={() => setHasFailed(true)}
+        className={`relative h-40 w-full rounded-md bg-white object-contain
+                    transition-opacity duration-300 ${isLoading ? "opacity-0" : "opacity-100"}`}
+      />
+    </div>
   );
 }
 

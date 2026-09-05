@@ -14,8 +14,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 // An error we can actually show to the user.
 //
 // It carries the backend's `code` (a stable string like "EMPTY_SEARCH_TERM") as
-// well as the message, so Milestone 9 can react to specific failures rather than
-// showing one generic message for everything.
+// well as the message, so the interface can react to specific failures rather
+// than showing one generic message for everything.
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
@@ -48,7 +48,10 @@ function readErrorBody(body: unknown, status: number): ApiError {
 
 export async function searchProducts(
   term: string,
-  language = "en"
+  language = "en",
+  // Lets the caller cancel this request when a newer search starts. Without it,
+  // a slow earlier search can finish last and overwrite newer results.
+  signal?: AbortSignal
 ): Promise<SearchResponse> {
   // URL + searchParams escapes the term for us, so "50% cocoa & nuts" cannot
   // break the query string.
@@ -59,8 +62,14 @@ export async function searchProducts(
   let response: Response;
 
   try {
-    response = await fetch(url);
-  } catch {
+    response = await fetch(url, { signal });
+  } catch (error) {
+    // We cancelled this request on purpose. The caller must ignore it rather
+    // than show an error, so it gets its own code.
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError("Search cancelled.", "ABORTED", 0);
+    }
+
     // fetch only rejects when the request never completed: the backend is not
     // running, the network is down, DNS failed. A 404 or 500 is a SUCCESSFUL
     // fetch with a bad status, handled further down.

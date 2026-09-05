@@ -6,42 +6,113 @@
 // user: there is nobody to click a button and no place to keep state. This page
 // has both a form and state, so it must also run in the browser.
 
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError, searchProducts } from "@/lib/api";
+import { errorCodeOf, friendlyErrorMessage, isRetryable } from "@/lib/errorMessages";
 import type { SearchResponse } from "@/lib/types";
 import { SearchForm } from "@/components/SearchForm";
 import { ProductList } from "@/components/ProductList";
+import {
+  ErrorPanel,
+  InitialPrompt,
+  LoadingSkeleton,
+  NoResults,
+} from "@/components/SearchStates";
+
+// ---------------------------------------------------------------------------
+// One variable describes the entire screen.
+//
+// This is a "discriminated union": every option has a `status` field, and
+// TypeScript uses it to know which other fields exist. Checking
+// `state.status === "success"` is what makes `state.data` available.
+//
+// The previous version used three separate values (results, error, isSearching)
+// which allowed nonsense combinations - results AND an error at the same time,
+// or loading AND results. With this shape those states cannot be written down,
+// so they cannot happen.
+// ---------------------------------------------------------------------------
+
+type SearchState =
+  | { status: "idle" }
+  | { status: "loading"; term: string }
+  | { status: "success"; data: SearchResponse }
+  | { status: "empty"; term: string }
+  | { status: "error"; message: string; canRetry: boolean };
 
 export default function HomePage() {
-  // All the page's state lives here, in one place. The child components receive
-  // what they need as props and keep no state of their own, so there is exactly
-  // one answer to "what is currently on screen?".
-  const [results, setResults] = useState<SearchResponse | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
+  const [state, setState] = useState<SearchState>({ status: "idle" });
 
-  async function handleSearch(term: string) {
-    // Clear the previous outcome before starting, otherwise old results would
-    // sit on screen next to a new error - or vice versa.
-    setErrorMessage(null);
-    setIsSearching(true);
+  // Lets the "Try again" button repeat the last search without the user
+  // retyping it.
+  const [lastTerm, setLastTerm] = useState("");
+
+  // Holds the in-flight request so a new search can cancel it.
+  //
+  // A ref, not state: changing it must NOT re-render the page, and we need to
+  // read the current value inside an async function without React's state
+  // snapshot getting in the way.
+  const inFlightRequest = useRef<AbortController | null>(null);
+
+  const runSearch = useCallback(async (rawTerm: string) => {
+    const term = rawTerm.trim();
+
+    // Catch a blank search before spending a network round trip. The backend
+    // rejects it too - that check stays, because the frontend is never the only
+    // line of defence - but answering instantly is a better experience.
+    if (term === "") {
+      setState({
+        status: "error",
+        message: "Please enter something to search for.",
+        canRetry: false,
+      });
+      return;
+    }
+
+    // Cancel whatever was already running.
+    //
+    // Without this, searching "milk" (slow) then "nutella" (fast) can show
+    // nutella's results and then have milk's late reply overwrite them - results
+    // that do not match the term on screen. Open Food Facts response times vary
+    // between about 3 and 20 seconds, so this is a real risk, not a theoretical
+    // one.
+    inFlightRequest.current?.abort();
+
+    const controller = new AbortController();
+    inFlightRequest.current = controller;
+
+    setLastTerm(term);
+    setState({ status: "loading", term });
 
     try {
-      const response = await searchProducts(term);
-      setResults(response);
-    } catch (error) {
-      // ApiError is the type our api.ts throws, and its message is already
-      // written for a human. Anything else is unexpected.
-      setErrorMessage(
-        error instanceof ApiError ? error.message : "Something went wrong."
+      const data = await searchProducts(term, "en", controller.signal);
+
+      // "Found nothing" is a SUCCESS, not an error. It gets its own state so it
+      // can be styled calmly instead of looking like a failure.
+      setState(
+        data.count === 0 ? { status: "empty", term } : { status: "success", data }
       );
-      setResults(null);
+    } catch (error) {
+      // We cancelled this ourselves because a newer search started. Showing an
+      // error here would flash a failure on screen during normal typing.
+      if (error instanceof ApiError && error.code === "ABORTED") return;
+
+      setState({
+        status: "error",
+        message: friendlyErrorMessage(error),
+        canRetry: isRetryable(error),
+      });
+
+      // The friendly message hides the technical detail from the user, but we
+      // still want it in the console when debugging.
+      console.error(`Search failed [${errorCodeOf(error)}]`, error);
     } finally {
-      // `finally` runs whether we succeeded or failed, so the button can never
-      // get stuck saying "Searching…".
-      setIsSearching(false);
+      // Only clear the ref if THIS request is still the current one. A newer
+      // search may already have replaced it.
+      if (inFlightRequest.current === controller) {
+        inFlightRequest.current = null;
+      }
     }
-  }
+  }, []);
 
   return (
     <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
@@ -52,31 +123,33 @@ export default function HomePage() {
         </p>
       </header>
 
-      <SearchForm onSearch={handleSearch} isSearching={isSearching} />
+      <SearchForm onSearch={runSearch} isSearching={state.status === "loading"} />
 
+      {/* Exactly one branch below can ever be true, because `status` holds a
+          single value. Reading this block tells you every screen the page has. */}
       <section className="mt-8">
-        {/* These three states get proper treatment in Milestone 9. For now they
-            are plain messages - enough that the page is never blank or broken. */}
+        {state.status === "idle" && <InitialPrompt onExample={runSearch} />}
 
-        {errorMessage && (
-          <p className="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950/40 dark:text-red-300">
-            {errorMessage}
-          </p>
+        {state.status === "loading" && <LoadingSkeleton term={state.term} />}
+
+        {state.status === "empty" && <NoResults term={state.term} />}
+
+        {state.status === "error" && (
+          <ErrorPanel
+            message={state.message}
+            canRetry={state.canRetry}
+            onRetry={() => runSearch(lastTerm)}
+          />
         )}
 
-        {results && results.count === 0 && !errorMessage && (
-          <p className="text-gray-600 dark:text-gray-400">
-            No products found for &ldquo;{results.term}&rdquo;.
-          </p>
-        )}
-
-        {results && results.count > 0 && (
+        {state.status === "success" && (
           <>
             <p className="mb-4 text-sm text-gray-500">
-              Showing {results.count} of {results.totalCount.toLocaleString()} matches
-              for &ldquo;{results.term}&rdquo;.
+              Showing {state.data.count} of{" "}
+              {state.data.totalCount.toLocaleString()} matches for &ldquo;
+              {state.data.term}&rdquo;.
             </p>
-            <ProductList products={results.products} />
+            <ProductList products={state.data.products} />
           </>
         )}
       </section>
