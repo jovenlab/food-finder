@@ -1,32 +1,29 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
+import { createApp } from "./app";
+import { env } from "./config/env";
+import { prisma } from "./prisma";
 
-// Create the Express application. `app` is the object we attach routes to.
-const app = express();
+// This file has exactly one job: start the server.
+//
+// Everything about *what* the application does lives in app.ts and the layers
+// below it. Keeping the two apart is what lets tests use the app without ever
+// opening a network port.
 
-// Read configuration from the environment, with sensible defaults for local development.
-const PORT = Number(process.env.PORT) || 4000;
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:3000";
+const app = createApp();
 
-// The browser blocks requests from one origin (localhost:3000) to another
-// (localhost:4000) unless the server explicitly allows it. This is CORS.
-app.use(cors({ origin: FRONTEND_ORIGIN }));
-
-// Parse incoming JSON request bodies into `req.body`.
-app.use(express.json());
-
-// Health check: a tiny endpoint whose only job is to prove the server is alive.
-app.get("/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    service: "food-finder-backend",
-    timestamp: new Date().toISOString(),
-  });
+const server = app.listen(env.port, () => {
+  console.log(`Backend listening on http://localhost:${env.port}`);
+  console.log(`Health check:        http://localhost:${env.port}/health`);
 });
 
-// Start listening for HTTP requests.
-app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
-  console.log(`Health check:        http://localhost:${PORT}/health`);
-});
+// Graceful shutdown. When you press Ctrl+C, Node would normally exit instantly
+// and drop any open database connections. Instead we stop accepting new
+// requests and close the connection pool cleanly.
+async function shutdown(signal: string) {
+  console.log(`\n${signal} received, shutting down...`);
+  server.close();
+  await prisma.$disconnect();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
