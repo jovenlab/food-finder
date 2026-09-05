@@ -2,6 +2,7 @@
 
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import type { MeResponse } from "@/lib/types";
+import type { TranslationKey } from "@/lib/i18n/translations";
 
 // Shows whether the demo user is subscribed, and offers the Subscribe button.
 //
@@ -30,6 +31,19 @@ export function SubscriptionPanel({
 
   const formatDate = (iso: string | null) =>
     iso === null ? "" : new Date(iso).toLocaleDateString(language);
+
+  // Why is this person being shown a Subscribe button?
+  //
+  // Note that "active" appears in this list. A subscription whose paid period has
+  // lapsed still reads `status: "active"` until Stripe's cancellation webhook
+  // arrives - our own expiry check has already withdrawn access by then, so the
+  // honest thing to say is that it ended.
+  const previousStateMessage: TranslationKey | null =
+    me.subscription.status === "none"
+      ? null
+      : ["past_due", "unpaid", "incomplete"].includes(me.subscription.status)
+        ? "subscriptionPaymentFailed"
+        : "subscriptionEnded";
 
   if (me.subscription.active) {
     return (
@@ -74,12 +88,19 @@ export function SubscriptionPanel({
         </p>
       )}
 
-      {/* Once the user has tried and something went wrong on Stripe's side, the
-          raw status is genuinely useful - "past_due" tells them their card was
-          declined, which "not subscribed" does not. */}
-      {me.subscription.status !== "none" && (
-        <p className="mt-2 text-xs text-gray-500">
-          {t("subscriptionStatus", { status: me.subscription.status })}
+      {/* Explain WHY they are seeing this panel, when there is a reason.
+          
+          The raw Stripe status used to be printed here, which produced the
+          genuinely baffling "Subscription status: active" sitting directly above
+          a Subscribe button - which happens whenever a period has lapsed without
+          us receiving the cancellation webhook. A sentence a person can act on is
+          more use; the raw status stays available on hover for debugging. */}
+      {previousStateMessage !== null && (
+        <p
+          className="mt-2 text-xs text-gray-500"
+          title={`Stripe status: ${me.subscription.status}`}
+        >
+          {t(previousStateMessage)}
         </p>
       )}
     </div>

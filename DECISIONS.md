@@ -439,3 +439,56 @@ theoretically interceptable. On `localhost` there is no network path for anyone
 to sit in. A remote database should use TLS instead, and the function leaves such
 URLs untouched — related to the driver advisories in decision 15.
 
+---
+
+## 26. Resubscribing creates a new row, and any live row grants access
+
+**Decision.** Cancelling and subscribing again produces a brand-new subscription
+object in Stripe with a new id, so the webhook handler inserts a **new row**
+rather than editing the old one. The old row stays, recording that it was
+cancelled. Access is granted if **any** row is live.
+
+**Why not just read the newest row?** Stripe webhooks can arrive out of order, so
+"most recently inserted" is not reliably "current subscription". Verified: after
+resubscribing, a late `customer.subscription.deleted` for the OLD subscription
+arrived — and access was correctly retained, because the new subscription was
+still live. Reading only the newest row would have revoked a paid subscription.
+
+The expiry check from decision 11 is what stops this being too generous: a stale
+`active` row cannot grant access once its period has passed.
+
+---
+
+## 27. The interface must not contradict the server
+
+**Decision.** Every search response carries the server's own `access.nutrition`
+decision. When it disagrees with the subscription panel's cached state, the page
+re-fetches `/me`.
+
+**Why.** Found by testing: with the page open, cancelling the subscription
+server-side left the panel announcing **"Subscription active"** directly above a
+grid of cards all saying **"Subscribe to see nutritional values"**. The data was
+correctly withheld — the server decides that — but the interface was visibly
+lying about why.
+
+Comparing against a value already present in the response means we detect
+staleness for free and re-fetch only when actually stale, rather than polling
+`/me` on every search.
+
+---
+
+## 28. Showing the raw Stripe status to users was a mistake
+
+**Decision.** The subscription panel no longer prints `Subscription status:
+{status}`. It says why access ended in a sentence, and keeps the raw status in a
+`title` tooltip for debugging.
+
+**Why.** When a paid period lapses before Stripe's cancellation webhook arrives,
+the stored status is still `active` while our expiry check has already withdrawn
+access. The old copy therefore rendered **"Subscription status: active"**
+immediately above a Subscribe button — accurate about Stripe's field, and
+completely baffling to a person.
+
+Now: *"Your last payment did not go through."* for `past_due`/`unpaid`/
+`incomplete`, and *"Your previous subscription has ended."* otherwise.
+

@@ -111,6 +111,16 @@ export default function HomePage() {
   // ---------------------------------------------------------------------
 
   const [me, setMe] = useState<MeResponse | null>(null);
+
+  // A mirror of `me` that callbacks can read without `me` becoming a dependency
+  // of every one of them. State updates are not visible until the next render;
+  // a ref always holds the latest value.
+  const meRef = useRef<MeResponse | null>(null);
+
+  const updateMe = useCallback((next: MeResponse) => {
+    meRef.current = next;
+    setMe(next);
+  }, []);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
@@ -130,13 +140,13 @@ export default function HomePage() {
     const controller = new AbortController();
 
     fetchMe(controller.signal)
-      .then(setMe)
+      .then(updateMe)
       .catch(() => {
         // Leave `me` as null; the subscription panel simply does not render.
       });
 
     return () => controller.abort();
-  }, []);
+  }, [updateMe]);
 
   const handleSubscribe = useCallback(async () => {
     setCheckoutError(null);
@@ -177,7 +187,7 @@ export default function HomePage() {
     for (let attempt = 0; attempt < 8; attempt++) {
       try {
         const latest = await fetchMe();
-        setMe(latest);
+        updateMe(latest);
 
         if (latest.subscription.active) {
           setConfirmState("confirmed");
@@ -191,7 +201,7 @@ export default function HomePage() {
     }
 
     setConfirmState("stillWaiting");
-  }, []);
+  }, [updateMe]);
 
   const runSearch = useCallback(
     async (rawTerm: string, searchLanguage: Language) => {
@@ -238,6 +248,26 @@ export default function HomePage() {
         // server owns the ordering and the de-duplication, and guessing here
         // would eventually disagree with what is actually stored.
         void refreshRecentSearches();
+
+        // Keep the subscription panel honest.
+        //
+        // `me` was loaded when the page opened and never refreshed, so a
+        // subscription that lapsed, was cancelled, or whose payment failed since
+        // then would leave the panel proudly announcing "Subscription active"
+        // directly above a grid of cards saying "Subscribe to see nutritional
+        // values". The data was correctly withheld - the SERVER decides that -
+        // but the interface was contradicting itself.
+        //
+        // Every search response now carries the server's own access decision, so
+        // we can spot the disagreement for free and only re-fetch when we are
+        // actually stale, rather than on every single search.
+        const known = meRef.current;
+
+        if (known !== null && known.subscription.active !== data.access.nutrition) {
+          void fetchMe().then(updateMe).catch(() => {
+            // Nothing to do - the results themselves are already correct.
+          });
+        }
       } catch (error) {
         // We cancelled this ourselves because a newer search started. Showing an
         // error here would flash a failure on screen during normal typing.
@@ -260,7 +290,7 @@ export default function HomePage() {
         }
       }
     },
-    [refreshRecentSearches]
+    [refreshRecentSearches, updateMe]
   );
 
   // The form and the example chips do not know about language; the page supplies
