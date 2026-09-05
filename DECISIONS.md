@@ -207,3 +207,59 @@ protected data to anyone who opened DevTools, regardless of what the React
 components chose to render. Hiding data in the browser is not access control.
 There is deliberately no commit in which nutrition data is reachable without a
 check.
+
+---
+
+## 13. Stripe configuration is optional at startup, validated when present
+
+**Decision.** `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` and `STRIPE_WEBHOOK_SECRET`
+have no defaults and are not required for the server to start. Anything that
+needs Stripe fails at the point of use with `503 STRIPE_NOT_CONFIGURED`.
+
+**Why.** Product search, translations and search history need no Stripe account.
+Requiring the keys at boot would stop someone running the project at all before
+they had signed up to Stripe. Failing loudly at the point of use is just as
+safe and far friendlier.
+
+No secret has a fallback value: a secret with a default is a secret waiting to be
+committed.
+
+---
+
+## 14. Live Stripe keys are refused outright
+
+**Decision.** A `STRIPE_SECRET_KEY` beginning `sk_live_` throws at startup.
+
+**Why.** This is an assignment run against test data, and the difference between
+test and live is one character in a `.env` file. A live key here could move real
+money. Stripe puts the mode in the key itself, so the check is trivial and the
+downside of getting it wrong is not.
+
+The shapes of all three values are validated too, which catches the common
+mistake of pasting a publishable key (`pk_test_...`) where the secret key
+belongs.
+
+`npm run stripe:check` goes further and asks Stripe itself: `balance.livemode`
+must be `false`. That is authoritative, rather than inferred from the key's
+prefix.
+
+---
+
+## 15. Known dependency vulnerabilities in the MySQL driver
+
+**Decision.** `npm audit` reports high-severity advisories in `mariadb` (via
+`@prisma/adapter-mariadb`) and `mysql2`. We are not fixing them now.
+
+**Why.** They pre-date the Stripe work and are unrelated to it. The `mariadb`
+advisories have **no fix available**. The `mysql2` fix requires
+`npm audit fix --force`, which downgrades Prisma 7 to 6 - a breaking change to
+the database layer late in the project.
+
+**Risk assessment.** The advisories concern credentials leaking to a
+man-in-the-middle and a decompression-bomb denial of service. This application
+connects to MySQL on `localhost`, so there is no network path for an attacker to
+sit in. The risk in this deployment is negligible.
+
+**Honest limitation.** In a real deployment with a remote database this would
+need resolving before going live. Recorded here rather than quietly ignored.
+

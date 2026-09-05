@@ -10,14 +10,16 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "try:search": "tsx src/scripts/try-search.ts"
+    "try:search": "tsx src/scripts/try-search.ts",
+    "stripe:check": "tsx src/scripts/check-stripe.ts"
   },
   "dependencies": {
     "@prisma/adapter-mariadb": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "stripe": "^22.6.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

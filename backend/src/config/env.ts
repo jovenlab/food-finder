@@ -42,6 +42,74 @@ function optionalNumber(name: string, fallback: number): number {
   return parsed;
 }
 
+// Optional: absent is fine, but a present value must look right.
+function optionalEnvOrNull(name: string): string | null {
+  const value = process.env[name];
+  return value && value.trim() !== "" ? value.trim() : null;
+}
+
+// ---------------------------------------------------------------------------
+// Stripe configuration.
+//
+// Deliberately OPTIONAL at startup. Product search, translations and search
+// history all work without Stripe, and someone who has not created a Stripe
+// account yet should still be able to run the application. Anything that
+// genuinely needs Stripe fails loudly at the point of use instead - see
+// src/stripe.ts.
+//
+// Nothing here has a default value. A secret with a fallback is a secret waiting
+// to be committed.
+// ---------------------------------------------------------------------------
+
+function readStripeConfig() {
+  const secretKey = optionalEnvOrNull("STRIPE_SECRET_KEY");
+  const webhookSecret = optionalEnvOrNull("STRIPE_WEBHOOK_SECRET");
+  const priceId = optionalEnvOrNull("STRIPE_PRICE_ID");
+
+  if (secretKey !== null) {
+    // REFUSE LIVE KEYS.
+    //
+    // This is a student assignment run against test data. A live key here could
+    // move real money, and the mistake is a single character in a .env file.
+    // Stripe makes the distinction visible in the key itself, so we check it.
+    if (secretKey.startsWith("sk_live_")) {
+      throw new Error(
+        "STRIPE_SECRET_KEY is a LIVE key (sk_live_...). This project is test-mode only. " +
+          "Use a test key from https://dashboard.stripe.com/test/apikeys (it starts with sk_test_)."
+      );
+    }
+
+    if (!secretKey.startsWith("sk_test_")) {
+      throw new Error(
+        `STRIPE_SECRET_KEY does not look like a Stripe secret key. Expected it to start with "sk_test_".`
+      );
+    }
+  }
+
+  // Webhook signing secrets always start with whsec_, in both modes.
+  if (webhookSecret !== null && !webhookSecret.startsWith("whsec_")) {
+    throw new Error(
+      `STRIPE_WEBHOOK_SECRET does not look like a Stripe webhook secret. Expected it to start with "whsec_".`
+    );
+  }
+
+  if (priceId !== null && !priceId.startsWith("price_")) {
+    throw new Error(
+      `STRIPE_PRICE_ID does not look like a Stripe price id. Expected it to start with "price_".`
+    );
+  }
+
+  return {
+    secretKey,
+    webhookSecret,
+    priceId,
+    // True only when everything needed to start a subscription is present.
+    // The webhook secret is checked separately: receiving webhooks and creating
+    // checkout sessions can be configured at different times.
+    isConfigured: secretKey !== null && priceId !== null,
+  };
+}
+
 export const env = {
   port: Number(optionalEnv("PORT", "4000")),
   frontendOrigin: optionalEnv("FRONTEND_ORIGIN", "http://localhost:3000"),
@@ -66,6 +134,8 @@ export const env = {
     // How many products to request per search.
     pageSize: optionalNumber("OFF_PAGE_SIZE", 20),
   },
+
+  stripe: readStripeConfig(),
 } as const;
 
 export const isProduction = env.nodeEnv === "production";

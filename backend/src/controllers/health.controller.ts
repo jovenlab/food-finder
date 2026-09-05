@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { checkDatabase } from "../services/health.service";
+import { describeStripeConfig } from "../stripe";
 
 // A controller translates between HTTP and our application logic:
 //   read what the request wants -> call a service -> shape the response.
@@ -20,5 +21,11 @@ export async function getHealth(_req: Request, res: Response) {
     service: "food-finder-backend",
     timestamp: new Date().toISOString(),
     database,
+    // Informational only - it reports whether Stripe is set up, and does NOT
+    // affect the status code. Search, translations and history all work without
+    // Stripe, so a missing Stripe key is not an unhealthy server.
+    //
+    // This reports booleans and a mode, never the key itself.
+    stripe: describeStripeConfig(),
   });
 }
