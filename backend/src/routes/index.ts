@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { healthRouter } from "./health.routes";
+import { productRouter } from "./product.routes";
 
 // The one place where every route group is attached to a URL.
 //
-// Reading this file tells you the application's complete public surface. When
-// we add product search in Milestone 6, exactly one line appears here.
+// Reading this file tells you the application's complete public surface.
 
 export const apiRouter = Router();
 
 apiRouter.use("/health", healthRouter);
+apiRouter.use("/products", productRouter);
