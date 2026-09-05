@@ -55,3 +55,22 @@ export async function getDemoUserAccess(): Promise<DemoUserAccess> {
     rights: rightsFor(subscription),
   };
 }
+
+// The version the request path uses, which never throws.
+//
+// Resolving access needs the database. Product search must keep working when the
+// database is down (decision 8), so this cannot be allowed to fail the request.
+//
+// It therefore FAILS CLOSED: if we cannot prove the user is entitled, they do not
+// get the data. Failing open would mean a database outage silently handed
+// premium content to everyone - the worst possible time to be generous.
+export async function canViewNutritionSafely(): Promise<boolean> {
+  try {
+    const access = await getDemoUserAccess();
+    return access.rights.nutrition;
+  } catch (error) {
+    console.error("Could not determine nutrition access - DENYING access:", error);
+    return false;
+  }
+}
+

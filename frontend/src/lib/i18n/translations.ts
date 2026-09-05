@@ -64,6 +64,18 @@ const en = {
   noImage: "No image",
   nameLanguageNote: "This product has no name in the selected language.",
 
+  nutritionTitle: "Nutrition per 100 g",
+  nutritionLocked: "Subscribe to see nutritional values",
+  nutritionNone: "No nutritional data available",
+  nutritionEnergy: "Energy",
+  nutritionFat: "Fat",
+  nutritionSaturatedFat: "of which saturates",
+  nutritionCarbohydrates: "Carbohydrates",
+  nutritionSugars: "of which sugars",
+  nutritionFiber: "Fibre",
+  nutritionProteins: "Protein",
+  nutritionSalt: "Salt",
+
   errorNetwork:
     "Could not reach the server. Check that the backend is running, then try again.",
   errorExternalApi:
@@ -123,6 +135,18 @@ const nl: Dictionary = {
   noImage: "Geen afbeelding",
   nameLanguageNote: "Dit product heeft geen naam in de geselecteerde taal.",
 
+  nutritionTitle: "Voedingswaarde per 100 g",
+  nutritionLocked: "Abonneer om voedingswaarden te zien",
+  nutritionNone: "Geen voedingsgegevens beschikbaar",
+  nutritionEnergy: "Energie",
+  nutritionFat: "Vetten",
+  nutritionSaturatedFat: "waarvan verzadigd",
+  nutritionCarbohydrates: "Koolhydraten",
+  nutritionSugars: "waarvan suikers",
+  nutritionFiber: "Vezels",
+  nutritionProteins: "Eiwitten",
+  nutritionSalt: "Zout",
+
   errorNetwork:
     "Kan de server niet bereiken. Controleer of de backend draait en probeer het opnieuw.",
   errorExternalApi:
@@ -177,6 +201,18 @@ const de: Dictionary = {
   nameLanguageNote:
     "Für dieses Produkt gibt es keinen Namen in der ausgewählten Sprache.",
 
+  nutritionTitle: "Nährwerte pro 100 g",
+  nutritionLocked: "Abonnieren, um Nährwerte zu sehen",
+  nutritionNone: "Keine Nährwertangaben verfügbar",
+  nutritionEnergy: "Energie",
+  nutritionFat: "Fett",
+  nutritionSaturatedFat: "davon gesättigte Fettsäuren",
+  nutritionCarbohydrates: "Kohlenhydrate",
+  nutritionSugars: "davon Zucker",
+  nutritionFiber: "Ballaststoffe",
+  nutritionProteins: "Eiweiß",
+  nutritionSalt: "Salz",
+
   errorNetwork:
     "Der Server ist nicht erreichbar. Prüfen Sie, ob das Backend läuft, und versuchen Sie es erneut.",
   errorExternalApi:
@@ -228,6 +264,18 @@ const fr: Dictionary = {
   nameNotAvailable: "Nom non disponible",
   noImage: "Pas d’image",
   nameLanguageNote: "Ce produit n’a pas de nom dans la langue sélectionnée.",
+
+  nutritionTitle: "Valeurs nutritionnelles pour 100 g",
+  nutritionLocked: "Abonnez-vous pour voir les valeurs nutritionnelles",
+  nutritionNone: "Aucune donnée nutritionnelle disponible",
+  nutritionEnergy: "Énergie",
+  nutritionFat: "Matières grasses",
+  nutritionSaturatedFat: "dont acides gras saturés",
+  nutritionCarbohydrates: "Glucides",
+  nutritionSugars: "dont sucres",
+  nutritionFiber: "Fibres",
+  nutritionProteins: "Protéines",
+  nutritionSalt: "Sel",
 
   errorNetwork:
     "Impossible de joindre le serveur. Vérifiez que le backend est démarré, puis réessayez.",

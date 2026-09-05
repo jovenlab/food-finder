@@ -375,3 +375,67 @@ forever after one missed cancellation webhook.
 Found by checking the SDK's type definitions before writing the code rather than
 after debugging it.
 
+---
+
+## 23. Nutrition access is enforced where the data is produced
+
+**Decision.** `product.controller.ts` asks `canViewNutritionSafely()` and includes
+the `nutrition` object only when the answer is yes. There is exactly one such
+place, and every product passes through it.
+
+**Why not in React.** If the backend sent the values and the components chose not
+to render them, the data would still be in the response — three clicks in
+DevTools away. Hiding something in the interface hides it only from people who
+were not looking. The single place a rule can be enforced is where the data is
+produced.
+
+The values are not blanked or zeroed; they are **never serialised**. An
+unentitled caller receives a response that does not contain them, so there is
+nothing to find in DevTools, a proxy log, or a saved response.
+
+**Verified** against ten bypass attempts with no subscription — forged
+`?nutrition=true`, `?access=true`, `?userId=1`, `Authorization: Bearer`,
+`x-subscribed`/`x-access-nutrition`/`x-user-id` headers, a `subscribed=true`
+cookie, a POST, and probing `/me` and `/searches/recent`. Every one returned
+products with no nutritional values. The same plain request with an active
+subscription returned them.
+
+---
+
+## 24. Access checks fail CLOSED
+
+**Decision.** `canViewNutritionSafely()` returns `false` when it cannot determine
+entitlement — for example when the database is unreachable.
+
+**Why.** Decision 8 says a database failure must not break product search, so the
+check cannot be allowed to throw. That leaves a choice about what to assume when
+the answer is unknown, and the only safe assumption is denial. Failing open would
+mean a database outage silently handed premium content to everyone — the worst
+possible moment to be generous.
+
+**Verified:** with an active subscription in place but the database unreachable,
+search returned 20 products and `access.nutrition: false`, with no values in the
+response.
+
+---
+
+## 25. `allowPublicKeyRetrieval` for local MySQL connections
+
+**Decision.** `src/prisma.ts` appends `allowPublicKeyRetrieval=true` to the
+database URL, but **only** when the host is `localhost`/`127.0.0.1`/`::1`.
+
+**Why.** MySQL 8 authenticates with `caching_sha2_password`. The server caches a
+successful authentication; while that cache is warm, connecting works. After the
+server restarts the cache is empty and the client must complete a full RSA
+exchange, for which the MariaDB driver refuses to fetch the server's public key
+unless permitted. The failure appears only after a restart, on a setup that
+worked the day before, with the message *"RSA public key is not available client
+side"*.
+
+Hit exactly this during Milestone 16 after the MySQL service restarted.
+
+**Why only locally.** Retrieving the key over an unencrypted connection is
+theoretically interceptable. On `localhost` there is no network path for anyone
+to sit in. A remote database should use TLS instead, and the function leaves such
+URLs untouched — related to the driver advisories in decision 15.
+

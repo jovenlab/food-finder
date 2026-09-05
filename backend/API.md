@@ -118,9 +118,11 @@ Repeating a parameter (`?q=a&q=b`) is rejected — send exactly one of each.
       "imageUrl": "https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.879.400.jpg",
       "quantity": "400 g",
       "nutriScore": "e",
-      "nutritionAvailable": true
+      "nutritionAvailable": true,
+      "nutrition": null
     }
-  ]
+  ],
+  "access": { "nutrition": false }
 }
 ```
 
@@ -150,7 +152,8 @@ brand, because they would render as blank cards. Do not show `totalCount` as
 | `imageUrl` | string \| null | Front-of-pack photo. Language-specific where available. |
 | `quantity` | string \| null | Free text, e.g. `"400 g"`, `"3.5 oz"`. Not parsed — units are inconsistent. |
 | `nutriScore` | string \| null | Open Food Facts health grade, `"a"` (best) to `"e"` (worst). Lowercase. |
-| `nutritionAvailable` | boolean | Whether nutritional data exists for this product. |
+| `nutritionAvailable` | boolean | Whether nutritional data **exists** for this product. Always sent, to everyone. |
+| `nutrition` | object \| null | The values, **only when the caller is entitled**. See below. |
 
 ### `nameLanguage` — when the name is not in the language you asked for
 
@@ -168,18 +171,43 @@ It can hold any language code Open Food Facts uses, not only our four. The
 frontend uses it to mark fallback names instead of passing them off as
 translations. We never translate product data ourselves.
 
-### Nutritional data is intentionally absent
+### Nutritional data requires an active subscription
 
-`nutritionAvailable` is a boolean, **not** the values.
+Detailed nutritional values are returned **only** when the demo user has a live
+Stripe subscription. The decision is made on the server, by
+`access.service.ts`, and the values are simply not serialised otherwise — there
+is nothing in the response to uncover.
 
-The assignment requires detailed nutritional information to be available only to
-a demo user with an active Stripe subscription. Returning the values from this
-endpoint — which enforces no subscription check — would leak protected data to
-anyone who opened DevTools, no matter what the React components chose to render.
+Two fields together describe every situation:
 
-Milestone 16 adds a `nutrition` object to each product, populated only when the
-demo user has an active subscription. Until then this flag lets the interface
-say "nutrition available" honestly without exposing anything.
+| `nutritionAvailable` | `nutrition` | Meaning |
+|---|---|---|
+| `false` | `null` | Open Food Facts has no nutritional data for this product |
+| `true` | `null` | Data exists, but this caller is **not entitled** |
+| `true` | `{...}` | Data exists and the caller is entitled |
+
+`access.nutrition` at the top level repeats the decision once for the whole
+response, so the interface can explain *why* values are missing without
+cross-referencing `GET /me`.
+
+When present, `nutrition` contains values **per 100 g/ml**, each `number | null`:
+`energyKcal`, `fat`, `saturatedFat`, `carbohydrates`, `sugars`, `fiber`,
+`proteins`, `salt`.
+
+#### Nothing the caller sends can change this
+
+There is no parameter, header, cookie or token that influences the decision. The
+backend identifies the demo user itself and reads the subscription state that
+Stripe webhooks maintain. Verified against ten bypass attempts — forged
+`?nutrition=true`, `?userId=1`, `Authorization`, `x-subscribed` headers, cookies
+— all returned products with no nutritional values.
+
+#### It fails closed
+
+Determining entitlement needs the database. If the database is unreachable, the
+search still returns products but nutrition is **withheld**: we cannot prove
+entitlement, so we do not grant it. A database outage must not hand premium data
+to everyone.
 
 ### Error responses
 

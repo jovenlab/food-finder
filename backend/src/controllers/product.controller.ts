@@ -12,11 +12,13 @@ import type { Request, Response } from "express";
 import { badRequest } from "../errors/AppError";
 import { searchProducts } from "../services/openFoodFacts.service";
 import { recordSearchSafely } from "../services/search.service";
+import { canViewNutritionSafely } from "../services/access.service";
 import {
   DEFAULT_LANGUAGE,
   SUPPORTED_LANGUAGES,
   parseLanguage,
   type Language,
+  type Nutrition,
   type Product,
   type ProductSearchResult,
 } from "../types/product";
@@ -41,14 +43,19 @@ type ProductResponse = {
   quantity: string | null;
   nutriScore: string | null;
 
-  // Whether Open Food Facts has nutritional data for this product.
+  // Whether Open Food Facts HAS nutritional data for this product.
   //
-  // Deliberately a boolean and NOT the values themselves. The assignment says
-  // nutritional detail requires an active subscription, and the coding rules say
-  // never to expose it through an endpoint that does not enforce that check.
-  // Milestone 16 adds the values here, behind the subscription check.
-  // This flag lets the frontend say "nutrition available" without leaking it.
+  // Always present, for everyone. Knowing that data exists is not the same as
+  // seeing it, and the interface needs this to offer a subscription honestly.
   nutritionAvailable: boolean;
+
+  // The values themselves - ONLY when the user is entitled to them.
+  //
+  // Together the two fields say exactly which situation we are in:
+  //   nutritionAvailable: false, nutrition: null   -> no data exists
+  //   nutritionAvailable: true,  nutrition: null   -> data exists, not entitled
+  //   nutritionAvailable: true,  nutrition: {...}  -> data exists, entitled
+  nutrition: Nutrition | null;
 };
 
 type SearchResponse = {
@@ -62,6 +69,13 @@ type SearchResponse = {
 
   // How many products are in the `products` array below.
   count: number;
+
+  // What this caller is allowed to see. Included so the interface can explain
+  // WHY nutrition is null without having to cross-reference GET /me - and so
+  // there is no window where the two disagree.
+  access: {
+    nutrition: boolean;
+  };
 
   products: ProductResponse[];
 };
@@ -103,7 +117,16 @@ function readLanguage(rawValue: unknown): Language {
 // Shaping the response.
 // ---------------------------------------------------------------------------
 
-function toProductResponse(product: Product): ProductResponse {
+// THE ENFORCEMENT POINT.
+//
+// This is where protected data is either included in the response or left out.
+// There is exactly one of these functions, and every product goes through it.
+//
+// Note the shape of the check: nutrition is included only when `canViewNutrition`
+// is true. Not hidden, not blanked - never serialised at all. A caller who is
+// not entitled receives a response that simply does not contain the values, so
+// there is nothing to find in DevTools, in a proxy log, or in a saved response.
+function toProductResponse(product: Product, canViewNutrition: boolean): ProductResponse {
   return {
     code: product.code,
     name: product.name,
@@ -113,16 +136,23 @@ function toProductResponse(product: Product): ProductResponse {
     quantity: product.quantity,
     nutriScore: product.nutriScore,
     nutritionAvailable: product.nutrition !== null,
+    nutrition: canViewNutrition ? product.nutrition : null,
   };
 }
 
-function toSearchResponse(result: ProductSearchResult): SearchResponse {
+function toSearchResponse(
+  result: ProductSearchResult,
+  canViewNutrition: boolean
+): SearchResponse {
   return {
     term: result.term,
     language: result.language,
     totalCount: result.totalCount,
     count: result.products.length,
-    products: result.products.map(toProductResponse),
+    access: { nutrition: canViewNutrition },
+    products: result.products.map((product) =>
+      toProductResponse(product, canViewNutrition)
+    ),
   };
 }
 
@@ -164,5 +194,16 @@ export async function searchProductsHandler(req: Request, res: Response) {
   // milliseconds against an Open Food Facts call that takes seconds.
   await recordSearchSafely(result.term, result.language);
 
-  res.json(toSearchResponse(result));
+  // Ask the SERVER whether this user may see nutritional values.
+  //
+  // The browser is never consulted and never trusted: it does not send a token,
+  // a flag or a claim of any kind, and there is no request parameter that could
+  // influence this answer. The rule lives in access.service.ts, which reads the
+  // subscription state that Stripe webhooks maintain.
+  //
+  // canViewNutritionSafely FAILS CLOSED - if the database is unreachable we
+  // cannot prove entitlement, so we withhold rather than guess.
+  const canViewNutrition = await canViewNutritionSafely();
+
+  res.json(toSearchResponse(result, canViewNutrition));
 }

@@ -4,6 +4,19 @@
 // backend wins - but keeping this file in step means TypeScript catches a
 // mismatch at compile time instead of the page crashing in a user's browser.
 
+// Nutritional values, all per 100g/100ml. Every field can be null: Open Food
+// Facts often has some values and not others.
+export type Nutrition = {
+  energyKcal: number | null;
+  fat: number | null;
+  saturatedFat: number | null;
+  carbohydrates: number | null;
+  sugars: number | null;
+  fiber: number | null;
+  proteins: number | null;
+  salt: number | null;
+};
+
 // One product, exactly as GET /products/search returns it.
 export type Product = {
   // Barcode. Always present, so we use it as the React list key.
@@ -24,6 +37,11 @@ export type Product = {
   quantity: string | null;
   nutriScore: string | null;
 
+  // Nutritional values per 100g - ONLY when the backend decided this user may
+  // see them. The backend simply does not serialise them otherwise, so there is
+  // nothing here to reveal.
+  nutrition: Nutrition | null;
+
   // Whether nutritional data EXISTS for this product. Deliberately not the
   // values: those require an active subscription and arrive in Milestone 16.
   nutritionAvailable: boolean;
@@ -32,6 +50,11 @@ export type Product = {
 export type SearchResponse = {
   term: string;
   language: string;
+
+  // What this caller is allowed to see, as decided by the SERVER.
+  access: {
+    nutrition: boolean;
+  };
 
   // How many products Open Food Facts matched in total.
   totalCount: number;

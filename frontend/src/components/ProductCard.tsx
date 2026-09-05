@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Product } from "@/lib/types";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { NutritionPanel } from "./NutritionPanel";
 
 // A shared placeholder for "there is no picture".
 //
@@ -142,6 +143,11 @@ export function ProductCard({ product }: { product: Product }) {
           <p className="text-xs text-gray-500 dark:text-gray-500">{product.quantity}</p>
         )}
       </div>
+
+      <NutritionPanel
+        nutrition={product.nutrition}
+        isAvailable={product.nutritionAvailable}
+      />
 
       {/* The barcode is always present, and is genuinely useful for checking a
           result against Open Food Facts by hand. */}
