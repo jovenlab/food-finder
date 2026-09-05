@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 type SearchFormProps = {
   // Called when the user submits. The parent decides what "search" means.
@@ -12,10 +13,15 @@ type SearchFormProps = {
 };
 
 export function SearchForm({ onSearch, isSearching }: SearchFormProps) {
+  const { t } = useLanguage();
+
   // The text currently in the input box. This is a "controlled input": React
   // holds the value, and the input displays whatever React says. That is why
   // both `value` and `onChange` are needed - remove onChange and the box
   // becomes read-only.
+  //
+  // Note the term is NOT reset when the language changes: switching language
+  // should re-run the same search, not clear what the user typed.
   const [term, setTerm] = useState("");
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -31,7 +37,7 @@ export function SearchForm({ onSearch, isSearching }: SearchFormProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row">
       <label htmlFor="search" className="sr-only">
-        Search for a food product
+        {t("searchLabel")}
       </label>
 
       <input
@@ -39,7 +45,7 @@ export function SearchForm({ onSearch, isSearching }: SearchFormProps) {
         type="text"
         value={term}
         onChange={(event) => setTerm(event.target.value)}
-        placeholder="Search for a product, e.g. nutella"
+        placeholder={t("searchPlaceholder")}
         maxLength={100}
         className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-base
                    outline-none transition focus:border-emerald-500
@@ -54,7 +60,7 @@ export function SearchForm({ onSearch, isSearching }: SearchFormProps) {
                    transition hover:bg-emerald-700
                    disabled:cursor-not-allowed disabled:bg-gray-400"
       >
-        {isSearching ? "Searching…" : "Search"}
+        {isSearching ? t("searchingButton") : t("searchButton")}
       </button>
     </form>
   );

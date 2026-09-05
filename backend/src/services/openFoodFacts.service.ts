@@ -29,6 +29,7 @@ const MAX_TERM_LENGTH = 100;
 // The product_name_xx entries are how we get translated names (Milestone 10).
 const REQUESTED_FIELDS = [
   "code",
+  "lang",
   "product_name",
   "product_name_en",
   "product_name_nl",
@@ -79,17 +80,35 @@ function numeric(value: unknown): number | null {
 // read dynamic keys such as `product_name_de`.
 type RawProduct = Record<string, unknown>;
 
-// Picks the best available name for the requested language.
+// Picks the best available name for the requested language, AND reports which
+// language that name is actually in.
 //
-// Order: the requested language, then the product default name, then English.
+// Order: the requested language, then the product's default name, then English.
 // If none exist we return null rather than inventing something - the assignment
 // is explicit that we must not fabricate translations.
-function resolveName(raw: RawProduct, language: Language): string | null {
-  return (
-    text(raw[`product_name_${language}`]) ??
-    text(raw["product_name"]) ??
-    text(raw["product_name_en"])
-  );
+//
+// Reporting the language matters. Asking for Dutch and silently receiving an
+// English name looks like a translation when it is not one. The frontend uses
+// this to say "this name is not in the language you chose".
+function resolveName(
+  raw: RawProduct,
+  language: Language
+): { name: string | null; nameLanguage: string | null } {
+  // 1. The language the user actually asked for.
+  const requested = text(raw[`product_name_${language}`]);
+  if (requested) return { name: requested, nameLanguage: language };
+
+  // 2. The product's own default name. Open Food Facts records which language
+  //    that is in its `lang` field, so we can report it honestly instead of
+  //    guessing.
+  const fallback = text(raw["product_name"]);
+  if (fallback) return { name: fallback, nameLanguage: text(raw["lang"]) };
+
+  // 3. English as a last resort - it is the most widely populated field.
+  const english = text(raw["product_name_en"]);
+  if (english) return { name: english, nameLanguage: "en" };
+
+  return { name: null, nameLanguage: null };
 }
 
 // Open Food Facts stores brands as one comma-separated string, for example
@@ -134,9 +153,12 @@ function toProduct(raw: RawProduct, language: Language): Product | null {
   // Without a barcode we have no identifier, so the entry is unusable.
   if (!code) return null;
 
+  const { name, nameLanguage } = resolveName(raw, language);
+
   return {
     code,
-    name: resolveName(raw, language),
+    name,
+    nameLanguage,
     brand: resolveBrand(raw),
     imageUrl: text(raw["image_url"]),
     quantity: text(raw["quantity"]),

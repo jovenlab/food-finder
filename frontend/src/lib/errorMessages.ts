@@ -1,41 +1,33 @@
-// Turns a backend error code into something a human should read, and decides
-// whether offering a "Try again" button makes sense.
+// Turns a backend error code into a TRANSLATION KEY, and decides whether
+// offering a "Try again" button makes sense.
 //
-// Why not just show the backend's message? Because those are written for a
-// developer debugging a problem ("Open Food Facts responded with HTTP 503
-// Service Temporarily Unavailable"). A user needs to know what to DO.
+// Note what this file returns: a key, not a sentence. The actual wording is
+// looked up in the user's language by whoever displays it. Returning English
+// text here would make error messages the one part of the interface that never
+// translates.
 
 import { ApiError } from "./api";
+import type { TranslationKey } from "./i18n/translations";
 
-// Keyed by the `code` field the backend sends. Codes are stable; messages are
-// not, which is exactly why we switch on the code rather than the text.
-const MESSAGES: Record<string, string> = {
-  NETWORK_ERROR:
-    "Could not reach the server. Check that the backend is running, then try again.",
-
-  EXTERNAL_API_ERROR:
-    "Open Food Facts is temporarily unavailable. This usually means too many searches in a short time — wait a moment and try again.",
-
-  EXTERNAL_API_TIMEOUT:
-    "Open Food Facts took too long to respond. It can be slow at busy times — please try again.",
-
-  EMPTY_SEARCH_TERM: "Please enter something to search for.",
-
-  SEARCH_TERM_TOO_LONG:
-    "That search term is too long. Try something shorter — a product or brand name works best.",
-
-  UNSUPPORTED_LANGUAGE: "That language is not supported.",
-
-  INTERNAL_ERROR: "Something went wrong on our side. Please try again.",
+// Keyed by the `code` field the backend sends. Codes are stable; the wording in
+// translations.ts can change freely, which is exactly why we switch on the code.
+const MESSAGE_KEYS: Record<string, TranslationKey> = {
+  NETWORK_ERROR: "errorNetwork",
+  EXTERNAL_API_ERROR: "errorExternalApi",
+  EXTERNAL_API_TIMEOUT: "errorTimeout",
+  EMPTY_SEARCH_TERM: "errorEmptyTerm",
+  SEARCH_TERM_TOO_LONG: "errorTooLong",
+  UNSUPPORTED_LANGUAGE: "errorUnsupportedLanguage",
+  INTERNAL_ERROR: "errorGeneric",
 };
 
-const FALLBACK_MESSAGE = "Something went wrong. Please try again.";
+const FALLBACK_KEY: TranslationKey = "errorGeneric";
 
-export function friendlyErrorMessage(error: unknown): string {
+export function errorMessageKey(error: unknown): TranslationKey {
   if (error instanceof ApiError) {
-    return MESSAGES[error.code] ?? FALLBACK_MESSAGE;
+    return MESSAGE_KEYS[error.code] ?? FALLBACK_KEY;
   }
-  return FALLBACK_MESSAGE;
+  return FALLBACK_KEY;
 }
 
 // Some failures are worth retrying unchanged: the server was down, the external

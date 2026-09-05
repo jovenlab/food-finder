@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Product } from "@/lib/types";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 // A shared placeholder for "there is no picture".
 //
@@ -9,6 +10,8 @@ import type { Product } from "@/lib/types";
 //   1. Open Food Facts has no image for this product (imageUrl is null)
 //   2. It has a URL, but loading it failed (dead link, offline CDN)
 function ImagePlaceholder() {
+  const { t } = useLanguage();
+
   return (
     <div
       className="flex h-40 w-full items-center justify-center rounded-md
@@ -17,7 +20,7 @@ function ImagePlaceholder() {
       // so we hide it from screen readers rather than making them read "no image".
       aria-hidden="true"
     >
-      No image
+      {t("noImage")}
     </div>
   );
 }
@@ -79,9 +82,21 @@ function ProductImage({ src, alt }: { src: string | null; alt: string }) {
 }
 
 export function ProductCard({ product }: { product: Product }) {
+  const { language, t } = useLanguage();
+
   // Every text field can be null. Deciding the fallback HERE, once, keeps the
   // markup below readable and guarantees we never render the word "null".
-  const displayName = product.name ?? "Name not available";
+  const displayName = product.name ?? t("nameNotAvailable");
+
+  // Open Food Facts does not have every product in every language. When the name
+  // we received is in a DIFFERENT language from the one selected, we say so
+  // rather than passing it off as a translation. The assignment is explicit that
+  // we must not invent translations for product data - this is how we stay
+  // honest about that instead of hiding it.
+  const isFallbackName =
+    product.name !== null &&
+    product.nameLanguage !== null &&
+    product.nameLanguage !== language;
 
   return (
     <li
@@ -92,13 +107,29 @@ export function ProductCard({ product }: { product: Product }) {
       <ProductImage src={product.imageUrl} alt={displayName} />
 
       <div className="flex flex-1 flex-col gap-1">
-        <h3
-          className={`font-semibold leading-snug ${
-            product.name === null ? "italic text-gray-400" : ""
-          }`}
-        >
-          {displayName}
-        </h3>
+        <div className="flex items-start gap-2">
+          <h3
+            className={`flex-1 font-semibold leading-snug ${
+              product.name === null ? "italic text-gray-400" : ""
+            }`}
+          >
+            {displayName}
+          </h3>
+
+          {isFallbackName && (
+            // `title` gives the explanation on hover; the same text is repeated
+            // for screen readers, which do not read `title` reliably.
+            <span
+              title={t("nameLanguageNote")}
+              className="mt-0.5 shrink-0 rounded border border-gray-300 px-1.5 py-0.5
+                         text-[10px] font-medium uppercase tracking-wide text-gray-500
+                         dark:border-gray-700 dark:text-gray-400"
+            >
+              {product.nameLanguage}
+              <span className="sr-only"> — {t("nameLanguageNote")}</span>
+            </span>
+          )}
+        </div>
 
         {/* Brand and quantity are only rendered when we actually have them.
             `{value && <p>…</p>}` renders nothing when value is null - this is

@@ -43,6 +43,15 @@ export type Product = {
   code: string;
 
   name: string | null;
+
+  // Which language `name` is actually in ("en", "nl", "de", "fr", or something
+  // else entirely such as "es"). Null when there is no name at all.
+  //
+  // This is NOT always the language that was requested: a product may have no
+  // Dutch name, in which case we fall back. Reporting the real language lets the
+  // interface be honest about that rather than passing English off as Dutch.
+  nameLanguage: string | null;
+
   brand: string | null;
   imageUrl: string | null;
   quantity: string | null;

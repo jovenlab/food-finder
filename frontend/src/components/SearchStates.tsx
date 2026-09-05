@@ -6,6 +6,9 @@
 // answers "what should the user see, and what should they do next?" for a
 // different outcome of the same request.
 
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import type { TranslationKey } from "@/lib/i18n/translations";
+
 // ---------------------------------------------------------------------------
 // 1. Idle - nothing searched yet.
 //
@@ -14,17 +17,19 @@
 // for many plausible searches.
 // ---------------------------------------------------------------------------
 
+// Product names, not interface text, so these stay the same in every language.
+// "nutella" is spelled the same in Dutch, German and French.
 const EXAMPLE_SEARCHES = ["nutella", "chocolate", "yoghurt", "olive oil"];
 
 export function InitialPrompt({ onExample }: { onExample: (term: string) => void }) {
+  const { t } = useLanguage();
+
   return (
     <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center dark:border-gray-700">
-      <p className="text-gray-600 dark:text-gray-400">
-        Search for a packaged food product to see its name, brand and photo.
-      </p>
+      <p className="text-gray-600 dark:text-gray-400">{t("initialPrompt")}</p>
 
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
-        <span className="text-sm text-gray-500">Try:</span>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        <span className="text-sm text-gray-500">{t("tryLabel")}</span>
         {EXAMPLE_SEARCHES.map((example) => (
           <button
             key={example}
@@ -52,13 +57,15 @@ export function InitialPrompt({ onExample }: { onExample: (term: string) => void
 // ---------------------------------------------------------------------------
 
 export function LoadingSkeleton({ term }: { term: string }) {
+  const { t } = useLanguage();
+
   return (
     <div>
       {/* aria-live="polite" makes a screen reader announce this without
           interrupting whatever the user is doing. Sighted users see the
           skeletons; this is the equivalent for everyone else. */}
       <p className="mb-4 text-sm text-gray-500" aria-live="polite">
-        Searching for &ldquo;{term}&rdquo;…
+        {t("searchingFor", { term })}
       </p>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -87,12 +94,12 @@ export function LoadingSkeleton({ term }: { term: string }) {
 // ---------------------------------------------------------------------------
 
 export function NoResults({ term }: { term: string }) {
+  const { t } = useLanguage();
+
   return (
     <div className="rounded-xl border border-gray-200 p-8 text-center dark:border-gray-800">
-      <p className="font-medium">No products found for &ldquo;{term}&rdquo;.</p>
-      <p className="mt-2 text-sm text-gray-500">
-        Try a different spelling, a brand name, or a more general word.
-      </p>
+      <p className="font-medium">{t("noResultsTitle", { term })}</p>
+      <p className="mt-2 text-sm text-gray-500">{t("noResultsHint")}</p>
     </div>
   );
 }
@@ -106,14 +113,18 @@ export function NoResults({ term }: { term: string }) {
 // ---------------------------------------------------------------------------
 
 export function ErrorPanel({
-  message,
+  messageKey,
   canRetry,
   onRetry,
 }: {
-  message: string;
+  // A translation key, not a sentence - so the message follows the selected
+  // language like everything else on the page.
+  messageKey: TranslationKey;
   canRetry: boolean;
   onRetry: () => void;
 }) {
+  const { t } = useLanguage();
+
   return (
     // role="alert" tells assistive technology to announce this immediately,
     // which is right for a failure the user needs to know about now.
@@ -122,7 +133,7 @@ export function ErrorPanel({
       className="rounded-xl border border-red-200 bg-red-50 p-6
                  dark:border-red-900 dark:bg-red-950/40"
     >
-      <p className="font-medium text-red-800 dark:text-red-200">{message}</p>
+      <p className="font-medium text-red-800 dark:text-red-200">{t(messageKey)}</p>
 
       {canRetry && (
         <button
@@ -131,7 +142,7 @@ export function ErrorPanel({
           className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white
                      transition hover:bg-red-700"
         >
-          Try again
+          {t("retry")}
         </button>
       )}
     </div>

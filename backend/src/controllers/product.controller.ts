@@ -28,6 +28,13 @@ import {
 type ProductResponse = {
   code: string;
   name: string | null;
+
+  // The language `name` is really in, which may differ from the requested one
+  // when the product has no name in that language. Lets the frontend show
+  // "this name is not in the language you chose" instead of silently
+  // substituting another language.
+  nameLanguage: string | null;
+
   brand: string | null;
   imageUrl: string | null;
   quantity: string | null;
@@ -99,6 +106,7 @@ function toProductResponse(product: Product): ProductResponse {
   return {
     code: product.code,
     name: product.name,
+    nameLanguage: product.nameLanguage,
     brand: product.brand,
     imageUrl: product.imageUrl,
     quantity: product.quantity,

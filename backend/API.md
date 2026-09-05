@@ -113,6 +113,7 @@ Repeating a parameter (`?q=a&q=b`) is rejected — send exactly one of each.
     {
       "code": "3017620422003",
       "name": "Nutella",
+      "nameLanguage": "en",
       "brand": "Ferrero",
       "imageUrl": "https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.879.400.jpg",
       "quantity": "400 g",
@@ -144,11 +145,28 @@ brand, because they would render as blank cards. Do not show `totalCount` as
 |---|---|---|
 | `code` | string | Barcode. The only always-present field; use it as the React `key`. |
 | `name` | string \| null | Product name in the requested language, falling back to the product's default name, then English. |
+| `nameLanguage` | string \| null | The language `name` is **actually** in. Null when there is no name. See below. |
 | `brand` | string \| null | Primary brand. Open Food Facts stores a comma-separated list; we keep the first entry. |
 | `imageUrl` | string \| null | Front-of-pack photo. Language-specific where available. |
 | `quantity` | string \| null | Free text, e.g. `"400 g"`, `"3.5 oz"`. Not parsed — units are inconsistent. |
 | `nutriScore` | string \| null | Open Food Facts health grade, `"a"` (best) to `"e"` (worst). Lowercase. |
 | `nutritionAvailable` | boolean | Whether nutritional data exists for this product. |
+
+### `nameLanguage` — when the name is not in the language you asked for
+
+Open Food Facts does not have every product in every language. Asking for `nl`
+and receiving an English name is common.
+
+`nameLanguage` reports the language the returned `name` is really in:
+
+- equal to the requested `lang` — a genuine translation exists
+- something else (`"en"`, `"es"`, `"ar"`, …) — no name in the requested
+  language, so this is a fallback
+- `null` — the product has no name at all
+
+It can hold any language code Open Food Facts uses, not only our four. The
+frontend uses it to mark fallback names instead of passing them off as
+translations. We never translate product data ourselves.
 
 ### Nutritional data is intentionally absent
 

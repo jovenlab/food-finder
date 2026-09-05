@@ -12,6 +12,13 @@ export type Product = {
   // `null` means Open Food Facts does not have this information.
   // It is never an empty string - the backend normalises that away.
   name: string | null;
+
+  // Which language `name` is ACTUALLY in - not necessarily the one requested.
+  // Open Food Facts has no Dutch name for many products, so asking for Dutch
+  // often returns English. This lets us say so instead of pretending.
+  // Can be any code Open Food Facts uses ("es", "ar", ...), not just our four.
+  nameLanguage: string | null;
+
   brand: string | null;
   imageUrl: string | null;
   quantity: string | null;
