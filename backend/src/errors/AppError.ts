@@ -20,13 +20,28 @@ export class AppError extends Error {
   }
 }
 
-// Convenience creators for the cases we expect to need. Using these keeps the
-// status codes consistent instead of scattering magic numbers through the code.
+// Convenience creators. Using these keeps status codes consistent instead of
+// scattering magic numbers through the code.
 
+// 400 - the caller sent us something invalid. Their fault.
 export function badRequest(message: string, code = "BAD_REQUEST") {
   return new AppError(400, message, code);
 }
 
+// 404 - we understood the request but have nothing to return.
 export function notFound(message: string, code = "NOT_FOUND") {
   return new AppError(404, message, code);
+}
+
+// 502 - WE are fine, but a service we depend on (Open Food Facts, Stripe)
+// answered with an error or with something we could not understand.
+// Distinguishing this from a 500 matters: 500 says "our bug", 502 says
+// "someone else's outage", and they need completely different debugging.
+export function badGateway(message: string, code = "EXTERNAL_API_ERROR") {
+  return new AppError(502, message, code);
+}
+
+// 504 - a service we depend on did not answer in time.
+export function gatewayTimeout(message: string, code = "EXTERNAL_API_TIMEOUT") {
+  return new AppError(504, message, code);
 }
