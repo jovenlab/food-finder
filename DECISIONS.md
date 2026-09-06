@@ -492,3 +492,86 @@ completely baffling to a person.
 Now: *"Your last payment did not go through."* for `past_due`/`unpaid`/
 `incomplete`, and *"Your previous subscription has ended."* otherwise.
 
+---
+
+## 29. Tests never touch the real Open Food Facts API or a real database
+
+**Decision.** `fetch` is stubbed and Prisma is replaced with a spy. No test needs
+MySQL running, a Stripe account, or an internet connection.
+
+**Why.** Open Food Facts takes 3-20 seconds per call, rate-limits at roughly 10
+searches a minute, and intermittently returns 503 even below that — measured
+during Milestone 6. A suite built on it would be slow and would fail at random,
+and a suite that fails at random gets ignored.
+
+Stubbing also buys the thing that actually matters here: we can produce a
+malformed response on demand. Most of these tests are about coping with bad data,
+which is impossible to arrange against a live API.
+
+**Known limitation.** Nothing here exercises the real SQL. The Prisma queries
+themselves are covered only by the manual MySQL Workbench tests in earlier
+milestones. A fuller project would add a throwaway test database.
+
+---
+
+## 30. Tests use the real Express app over real HTTP
+
+**Decision.** The API tests build the app with `createApp()` and listen on port 0
+(any free port), then send genuine HTTP requests to it.
+
+**Why.** This exercises the routing, the query-parameter parsing, the error
+handler and the response serialisation together — the layers where the bugs
+found in Milestones 7 and 16 actually lived. Calling controller functions
+directly would skip all of it.
+
+This is only possible because Milestone 5 separated "build the app" from "start
+the server". That separation was made for exactly this reason.
+
+---
+
+## 31. Stripe signatures in tests are real signatures
+
+**Decision.** Webhook tests sign their payloads with
+`stripe.webhooks.generateTestHeaderString`, the SDK's own signing helper.
+
+**Why.** Mocking `constructEvent` would test that our code calls a function we
+told to succeed — worth nothing. Signing for real means the tests exercise the
+actual verification path, so they genuinely prove that unsigned, wrongly-signed,
+tampered and stale requests are all refused.
+
+---
+
+## 32. The backend was not type-checking its own tests
+
+**Decision.** Added `tsconfig.test.json`, which type-checks `tests/`, `prisma/`
+and the config files as well as `src/`. `npm run typecheck` uses it; `npm run
+build` still uses `tsconfig.json` and emits only `src/`.
+
+**Why.** `tsconfig.json` includes only `src/**/*.ts`, because that is what gets
+compiled to `dist/`. Vitest strips types without checking them, so nothing was
+checking the test files at all. Proved it by putting `const bad: number =
+"not a number"` in a test: `tsc --noEmit` returned **exit 0**.
+
+Turning the check on immediately surfaced three genuine type errors in the tests,
+including a mock whose argument tuple was empty so `calls[0][0]` could not exist.
+
+---
+
+## 33. The tests were verified to fail
+
+**Decision.** Before trusting the suite, a deliberate leak was introduced —
+`nutrition: product.nutrition` instead of
+`nutrition: canViewNutrition ? product.nutrition : null` — to confirm the tests
+notice.
+
+**Result.** Six tests failed immediately, naming the problem:
+
+```
+AssertionError: expected { energyKcal: 539, … } to be null
+AssertionError: expected '{"term":"nutella",…' not to contain 'energyKcal'
+```
+
+A test suite that has never been seen to fail is decoration. The raw-payload
+assertion (`expect(text).not.toContain("energyKcal")`) is the valuable one: it
+searches the entire response rather than the fields we happened to think of.
+

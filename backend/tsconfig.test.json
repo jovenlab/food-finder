@@ -1,0 +1,23 @@
+{
+  // Type-checks EVERYTHING, not just the code that gets compiled into dist/.
+  //
+  // tsconfig.json deliberately includes only src/, because that is what `npm run
+  // build` emits. The consequence was that test files, the seed script and the
+  // Prisma config were never type-checked at all - Vitest strips types without
+  // checking them, so a genuine type error in a test would go unnoticed.
+  //
+  // This config checks the lot without emitting anything. Used by `npm run
+  // typecheck`; `npm run build` still uses tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "prisma/**/*.ts",
+    "prisma7.config.ts",
+    "vitest.config.mts"
+  ]
+}

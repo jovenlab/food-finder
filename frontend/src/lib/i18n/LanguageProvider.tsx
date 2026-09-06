@@ -41,23 +41,24 @@ const STORAGE_KEY = "food-finder-language";
 // Everyone who wants to know when the language changes.
 const listeners = new Set<() => void>();
 
-// useSyncExternalStore calls getSnapshot on every render and compares the
-// result. Re-reading localStorage each time would work (a string compares by
-// value) but is wasteful, so we remember it and clear the cache on a change.
-let cachedLanguage: Language | null = null;
-
-function readStoredLanguage(): Language {
+// useSyncExternalStore calls getSnapshot on every render and compares the result
+// with the previous one; if it ever returns something "new", React re-renders
+// forever. That is safe here because a Language is a plain string, and two equal
+// strings are the same value.
+//
+// An earlier version cached this in a module-level variable to avoid re-reading
+// localStorage. That was an optimisation with a bug in it: the cache went stale
+// whenever storage changed by any route other than our own writeLanguage - which
+// showed up immediately in tests, where each case sets a different language.
+// Reading a synchronous key-value store on render costs nothing worth having a
+// cache-invalidation problem for.
+function getSnapshot(): Language {
   try {
     return parseLanguage(window.localStorage.getItem(STORAGE_KEY)) ?? DEFAULT_LANGUAGE;
   } catch {
     // Reading localStorage throws outright when site data is blocked.
     return DEFAULT_LANGUAGE;
   }
-}
-
-function getSnapshot(): Language {
-  if (cachedLanguage === null) cachedLanguage = readStoredLanguage();
-  return cachedLanguage;
 }
 
 // What the SERVER should assume. There is no localStorage during server
@@ -75,10 +76,7 @@ function subscribe(onStoreChange: () => void): () => void {
   // open tabs stay in step. It does not fire in the tab that made the change,
   // which is why writeLanguage notifies listeners itself.
   const handleStorage = (event: StorageEvent) => {
-    if (event.key === STORAGE_KEY) {
-      cachedLanguage = null;
-      onStoreChange();
-    }
+    if (event.key === STORAGE_KEY) onStoreChange();
   };
 
   window.addEventListener("storage", handleStorage);
@@ -90,8 +88,6 @@ function subscribe(onStoreChange: () => void): () => void {
 }
 
 function writeLanguage(next: Language) {
-  cachedLanguage = next;
-
   try {
     window.localStorage.setItem(STORAGE_KEY, next);
   } catch {
