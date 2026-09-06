@@ -88,6 +88,9 @@ const en = {
     "That search term is too long. Try something shorter — a product or brand name works best.",
   errorUnsupportedLanguage: "That language is not supported.",
   errorGeneric: "Something went wrong. Please try again.",
+  errorStripe: "Could not reach Stripe. Please try again in a moment.",
+  errorStripeNotConfigured: "Subscriptions are not available on this server.",
+  errorAlreadySubscribed: "This account already has an active subscription.",
 } as const;
 
 // Every other language must provide exactly the same keys.
@@ -160,6 +163,9 @@ const nl: Dictionary = {
     "Die zoekterm is te lang. Probeer iets korters — een product- of merknaam werkt het best.",
   errorUnsupportedLanguage: "Die taal wordt niet ondersteund.",
   errorGeneric: "Er is iets misgegaan. Probeer het opnieuw.",
+  errorStripe: "Kan Stripe niet bereiken. Probeer het zo dadelijk opnieuw.",
+  errorStripeNotConfigured: "Abonnementen zijn niet beschikbaar op deze server.",
+  errorAlreadySubscribed: "Dit account heeft al een actief abonnement.",
 };
 
 const de: Dictionary = {
@@ -227,6 +233,9 @@ const de: Dictionary = {
     "Der Suchbegriff ist zu lang. Versuchen Sie etwas Kürzeres — ein Produkt- oder Markenname funktioniert am besten.",
   errorUnsupportedLanguage: "Diese Sprache wird nicht unterstützt.",
   errorGeneric: "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut.",
+  errorStripe: "Stripe ist nicht erreichbar. Bitte versuchen Sie es gleich erneut.",
+  errorStripeNotConfigured: "Abonnements sind auf diesem Server nicht verfügbar.",
+  errorAlreadySubscribed: "Dieses Konto hat bereits ein aktives Abonnement.",
 };
 
 const fr: Dictionary = {
@@ -292,6 +301,9 @@ const fr: Dictionary = {
     "Ce terme de recherche est trop long. Essayez plus court — un nom de produit ou de marque fonctionne mieux.",
   errorUnsupportedLanguage: "Cette langue n’est pas prise en charge.",
   errorGeneric: "Une erreur s’est produite. Veuillez réessayer.",
+  errorStripe: "Impossible de joindre Stripe. Veuillez réessayer dans un instant.",
+  errorStripeNotConfigured: "Les abonnements ne sont pas disponibles sur ce serveur.",
+  errorAlreadySubscribed: "Ce compte a déjà un abonnement actif.",
 };
 
 export const translations: Record<Language, Dictionary> = { en, nl, de, fr };

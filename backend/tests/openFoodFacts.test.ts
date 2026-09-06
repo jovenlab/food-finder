@@ -243,16 +243,34 @@ describe("searchProducts - when Open Food Facts misbehaves", () => {
     );
   });
 
-  it("reports an unreachable server as 502 with the underlying reason", async () => {
+  it("logs the underlying reason but does NOT put it in the response", async () => {
+    // Two requirements at once, and they pull in opposite directions:
+    //
+    //   * whoever debugs this needs the real reason
+    //   * whoever made the request must not receive it
+    //
+    // An AppError message is shown to the caller, so an upstream error message
+    // must never be interpolated into one. Node's network errors quote the URL
+    // being fetched, which can carry credentials.
     const networkError = Object.assign(new TypeError("fetch failed"), {
       cause: Object.assign(new Error(""), { code: "ECONNREFUSED" }),
     });
     vi.stubGlobal("fetch", vi.fn(async () => { throw networkError; }));
 
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
     const error = await searchProducts("nutella", "en").catch((e) => e);
 
     expect(error).toBeInstanceOf(AppError);
-    // Node hides the real reason inside `cause`; we dig it out so logs are useful.
-    expect(error.message).toContain("ECONNREFUSED");
+    expect(error.code).toBe("EXTERNAL_API_ERROR");
+
+    // The caller learns nothing about our internals.
+    expect(error.message).toBe("Could not reach Open Food Facts.");
+    expect(error.message).not.toContain("ECONNREFUSED");
+
+    // But the log has what a developer needs.
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("ECONNREFUSED"));
+
+    logged.mockRestore();
   });
 });

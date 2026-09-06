@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { getDemoUserAccess } from "../services/access.service";
-import { AppError, serviceUnavailable } from "../errors/AppError";
+import { withDatabase } from "../errors/withDatabase";
 
 // Reports who the application thinks the user is, what their subscription looks
 // like, and what they are allowed to see.
@@ -14,21 +14,7 @@ import { AppError, serviceUnavailable } from "../errors/AppError";
 // who that is.
 
 export async function getMeHandler(_req: Request, res: Response) {
-  let access;
-
-  try {
-    access = await getDemoUserAccess();
-  } catch (error) {
-    // A missing demo user is already a clean 503 from requireDemoUser, so let it
-    // through untouched. Anything else here is the database being unreachable.
-    if (error instanceof AppError) throw error;
-
-    console.error("Could not resolve demo user access:", error);
-    throw serviceUnavailable(
-      "Account information is unavailable because the database cannot be reached.",
-      "DATABASE_UNAVAILABLE"
-    );
-  }
+  const access = await withDatabase("Account information", getDemoUserAccess);
 
   const { user, subscription, rights } = access;
 

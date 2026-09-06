@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { createCheckoutSession } from "../services/checkout.service";
+import { withDatabase } from "../errors/withDatabase";
 
 // Starts a subscription.
 //
@@ -13,7 +14,10 @@ import { createCheckoutSession } from "../services/checkout.service";
 // an error instead if something went wrong.
 
 export async function createCheckoutSessionHandler(_req: Request, res: Response) {
-  const session = await createCheckoutSession();
+  // Wrapped because creating a session reads the user and their subscription
+  // first. Without this, an unreachable database produced a 500 with a raw
+  // Prisma error quoting our file paths.
+  const session = await withDatabase("Checkout", createCheckoutSession);
 
   res.json({
     url: session.url,

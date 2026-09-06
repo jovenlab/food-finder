@@ -245,23 +245,47 @@ prefix.
 
 ---
 
-## 15. Known dependency vulnerabilities in the MySQL driver
+## 15. Known dependency vulnerabilities (revised at Milestone 19)
 
-**Decision.** `npm audit` reports high-severity advisories in `mariadb` (via
-`@prisma/adapter-mariadb`) and `mysql2`. We are not fixing them now.
+**Original position (Milestone 13).** `npm audit` reported high-severity
+advisories in `mariadb` (via `@prisma/adapter-mariadb`) and `mysql2`. They were
+left alone: the `mariadb` ones had "no fix available", and the `mysql2` fix
+required downgrading Prisma 7 to 6.
 
-**Why.** They pre-date the Stripe work and are unrelated to it. The `mariadb`
-advisories have **no fix available**. The `mysql2` fix requires
-`npm audit fix --force`, which downgrades Prisma 7 to 6 - a breaking change to
-the database layer late in the project.
+**Revised at Milestone 19.** "No fix available" turned out to be npm's view, not
+the truth. The advisory affects `mariadb` 3.4.0-3.4.5; version **3.5.4** is
+published and patched. npm could not offer it because
+`@prisma/adapter-mariadb@7.10.0` pins `"mariadb": "3.4.5"` **exactly** - no
+caret, so `npm update` can never move it.
 
-**Risk assessment.** The advisories concern credentials leaking to a
-man-in-the-middle and a decompression-bomb denial of service. This application
-connects to MySQL on `localhost`, so there is no network path for an attacker to
-sit in. The risk in this deployment is negligible.
+**Decision.** An npm `overrides` entry forces the patched driver:
 
-**Honest limitation.** In a real deployment with a remote database this would
-need resolving before going live. Recorded here rather than quietly ignored.
+```json
+"overrides": { "mariadb": "^3.5.4" }
+```
+
+**Verified before trusting it**, because overriding a pinned dependency can break
+things: type-check clean, all 60 backend tests pass, real SELECT/INSERT/DELETE
+against MySQL 8.0.46 succeed, `/health`, `/products/search`, `/searches/recent`
+and `/me` all respond correctly, and the production build succeeds.
+
+**Result.**
+
+| | Before | After |
+|---|---|---|
+| Runtime dependencies | 1 moderate + 1 high (credentials leaking to a MitM, in the actual database driver) | **0** |
+| Dev/CLI toolchain | 4 high | 4 high |
+
+The four that remain all come from the `prisma` CLI - confirmed with `npm ls`,
+whose only path is `prisma@7.10.0`. That is a **devDependency**: it runs
+migrations and the seed script, and is not deployed or reachable from a request.
+The only offered fix is a downgrade to Prisma 6, a semver-major change to the
+database layer, which is not worth taking for tooling that never handles a
+request.
+
+**Lesson worth keeping:** "no fix available" is worth checking rather than
+believing. The patched version existed the whole time; a pinned transitive
+dependency was hiding it.
 
 ---
 
@@ -574,4 +598,175 @@ AssertionError: expected '{"term":"nutella",…' not to contain 'energyKcal'
 A test suite that has never been seen to fail is decoration. The raw-payload
 assertion (`expect(text).not.toContain("energyKcal")`) is the valuable one: it
 searches the entire response rather than the fields we happened to think of.
+
+---
+
+## 34. `.env.example` documents every variable, including the optional ones
+
+**Decision.** `backend/.env.example` lists all eleven variables the code reads,
+with the optional ones commented out but explained.
+
+**Why.** The audit at Milestone 19 found five variables the code reads that the
+example file never mentioned: `NODE_ENV`, `OFF_BASE_URL`, `OFF_USER_AGENT`,
+`OFF_TIMEOUT_MS`, `OFF_PAGE_SIZE`. All optional, so nothing was broken - but a
+setting nobody can discover is a setting nobody will use, and `OFF_BASE_URL` in
+particular is what makes local testing without the real API possible.
+
+The file now also states plainly what `.env` and `.env.example` are for, since
+that distinction is the whole mechanism keeping secrets out of the repository.
+
+---
+
+## 35. Upstream error messages must never reach the caller
+
+**Decision.** An error message from a third party is logged, never interpolated
+into an `AppError`. Callers get a fixed sentence we wrote.
+
+**Why - this was a real vulnerability, found by a test.** `AppError` messages are
+shown to whoever made the request; that is their purpose. But the Open Food Facts
+service was building one like this:
+
+```ts
+throw badGateway(`Could not reach Open Food Facts: ${error.message}`);
+```
+
+`error.message` is whatever the failing library decided to write. Node's network
+errors quote the URL being fetched, and a misconfigured `OFF_BASE_URL` can carry
+credentials. The security test made the fetch throw an error containing
+`postgres://admin:hunter2@internal-db.example.com/private` - and **it came back
+in the HTTP response, in production mode**.
+
+Fixed in two places:
+
+- **Open Food Facts service** - the reason goes to `console.error`; the caller
+  gets `"Could not reach Open Food Facts."`. The HTTP status number is still
+  reported, since that is ours and reveals nothing.
+- **Health check** - `/health` is a public URL, and Prisma errors quote our file
+  paths, table names and connection settings. In production it now reports
+  `"Database unreachable."` and logs the detail.
+
+One existing test failed as a result, correctly: it had asserted the reason
+appeared in the message. It now asserts the opposite, plus that the detail is
+logged - which is the behaviour actually wanted.
+
+---
+
+## 36. Two response headers, and deliberately not `helmet`
+
+**Decision.** `app.disable("x-powered-by")` and an explicit
+`X-Content-Type-Options: nosniff`. No `helmet`.
+
+**Why.** Express advertises `X-Powered-By: Express` on every response, telling an
+attacker which published vulnerabilities to try first. `nosniff` stops a browser
+guessing that a JSON response is really HTML or a script.
+
+Most of what helmet adds - Content-Security-Policy, HSTS, frame options -
+protects HTML pages, and this server returns only JSON. Two lines we can explain
+beat a dependency whose defaults we would have to go and look up.
+
+**On CORS:** a request from `https://evil.example.com` still receives
+`Access-Control-Allow-Origin: http://localhost:3000`. That is correct, not a bug:
+the header names the *allowed* origin, and because it does not match the caller,
+the browser refuses to hand over the response. A wildcard `*` would be the actual
+bug, and a test now asserts it never appears.
+
+---
+
+## 37. Nutri-Score stays public
+
+**Decision.** The `nutriScore` letter grade (a-e) is returned to everyone, not
+restricted alongside the detailed values.
+
+**Why.** It is a single letter printed on the front of the physical packaging
+across Europe - a public label, not "detailed nutritional information". The
+assignment protects nutritional *detail*: energy, fat, sugars, salt and so on.
+Those are what require a subscription.
+
+Flagged here rather than left implicit, because it is a judgement call. If it
+should be protected, the change is one line in `product.controller.ts` alongside
+`nutrition` - and it must be made in the API, not by hiding it in React.
+
+---
+
+## 38. No rate limiting (known limitation)
+
+**Decision.** No rate limiting on any endpoint.
+
+**Why it matters.** `/products/search` proxies to Open Food Facts, which allows
+roughly 10 searches a minute per client. A caller hammering our endpoint would
+exhaust that budget and break search for everyone using the deployment.
+
+**Why not now.** It needs a dependency and a policy (per IP? per session? what
+limit?), and neither is what this assignment is demonstrating. Recorded as a
+limitation rather than quietly omitted; it would be needed before any real
+deployment.
+
+---
+
+## 39. One shared guard for database failures
+
+**Decision.** `withDatabase(what, run)` wraps every route handler that needs the
+database, converting an unreachable database into `503 DATABASE_UNAVAILABLE`.
+
+**Why.** Three controllers had their own copy of the same eight-line try/catch,
+and the fourth was missed - which is precisely how duplicated error handling
+goes wrong. `POST /checkout/session` with MySQL down answered:
+
+    500 INTERNAL_ERROR
+    "Invalid `prisma.user.findUnique()` invocation in D:\...\user.service.ts:24"
+
+Two faults: `500` claims the bug is ours when the database being down is an
+expected operational condition, and the message quotes our file paths and query
+internals back to the caller.
+
+Now all four share one implementation, so a fix applies everywhere at once.
+
+---
+
+## 40. Stripe failures are 502, and Stripe's words stay in the log
+
+**Decision.** Every Stripe call goes through `callStripe()`, which logs the real
+error and raises `502 STRIPE_ERROR` with a message we wrote.
+
+**Why.** Found by walking the edge cases: with a wrong API key,
+`POST /checkout/session` returned
+
+    500 INTERNAL_ERROR
+    "Invalid API Key provided: sk_test_*********************************0000"
+
+The status was wrong - Stripe rejecting our key is not a bug in this code - and
+the response echoed our own (masked) API key back to the caller. The same rule
+that fixed the Open Food Facts leak in decision 35 applies here: an upstream
+error message is for the log, never for the response.
+
+---
+
+## 41. Long unbroken text must be allowed to wrap
+
+**Decision.** Product name, brand, quantity and barcode carry `break-words`
+(`break-all` for the barcode), and the heading also carries `min-w-0`.
+
+**Why.** Open Food Facts contains product names that are one unbroken
+80-character string. A browser will not break a word on its own: it pushes the
+text straight out of the card and drags the whole grid sideways. `min-w-0` is the
+other half of the fix - a flex child refuses to shrink below its content width
+without it, so wrapping alone would not have been enough.
+
+**Limitation of the test.** jsdom cannot measure layout, so the test asserts the
+classes are present rather than that nothing overflows. That is weaker than a
+visual check, and it asserts on styling rather than behaviour - but it does catch
+the specific regression of someone removing the guard.
+
+---
+
+## 42. Zero is a value, not a missing value
+
+**Decision.** A nutritional value of `0` is displayed; only `null` is treated as
+missing.
+
+**Why.** The classic falsy-check bug would silently delete "0 g of salt" - which
+is real information and, for some products, the entire selling point. The
+distinction runs from `numeric()` in the Open Food Facts service (which accepts
+`0` but rejects `""` and `"bogus"`) through to `NutritionPanel`, which filters on
+`!== null` rather than on truthiness. Both ends are covered by tests.
 

@@ -109,8 +109,14 @@ export function ProductCard({ product }: { product: Product }) {
 
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-start gap-2">
+          {/* `break-words` is not decoration. Open Food Facts contains product
+              names that are one unbroken 80-character string, and a browser will
+              not break a word on its own - it pushes it straight out of the card
+              and knocks the whole grid sideways. `min-w-0` is the other half:
+              a flex child refuses to shrink below its content width without it,
+              so wrapping alone would not be enough. */}
           <h3
-            className={`flex-1 font-semibold leading-snug ${
+            className={`min-w-0 flex-1 break-words font-semibold leading-snug ${
               product.name === null ? "italic text-gray-400" : ""
             }`}
           >
@@ -136,11 +142,11 @@ export function ProductCard({ product }: { product: Product }) {
             `{value && <p>…</p>}` renders nothing when value is null - this is
             the standard React way to show something conditionally. */}
         {product.brand && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">{product.brand}</p>
+          <p className="break-words text-sm text-gray-600 dark:text-gray-400">{product.brand}</p>
         )}
 
         {product.quantity && (
-          <p className="text-xs text-gray-500 dark:text-gray-500">{product.quantity}</p>
+          <p className="break-words text-xs text-gray-500 dark:text-gray-500">{product.quantity}</p>
         )}
       </div>
 
@@ -151,7 +157,7 @@ export function ProductCard({ product }: { product: Product }) {
 
       {/* The barcode is always present, and is genuinely useful for checking a
           result against Open Food Facts by hand. */}
-      <p className="font-mono text-xs text-gray-400">{product.code}</p>
+      <p className="break-all font-mono text-xs text-gray-400">{product.code}</p>
     </li>
   );
 }

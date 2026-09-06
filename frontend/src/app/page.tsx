@@ -122,7 +122,11 @@ export default function HomePage() {
     setMe(next);
   }, []);
   const [isStartingCheckout, setIsStartingCheckout] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // A translation KEY, not a sentence - so a checkout failure follows the
+  // selected language like every other message. It used to show the backend's
+  // English text verbatim, which was the one place the interface fell back to
+  // English regardless of the chosen language.
+  const [checkoutErrorKey, setCheckoutErrorKey] = useState<TranslationKey | null>(null);
 
   // How the page reports what happened after Stripe sent the user back.
   //   cancelled     - the user backed out; nothing was charged
@@ -149,7 +153,7 @@ export default function HomePage() {
   }, [updateMe]);
 
   const handleSubscribe = useCallback(async () => {
-    setCheckoutError(null);
+    setCheckoutErrorKey(null);
     setIsStartingCheckout(true);
 
     try {
@@ -159,9 +163,8 @@ export default function HomePage() {
       // entered there, on Stripe's domain - they never touch our server.
       window.location.href = session.url;
     } catch (error) {
-      setCheckoutError(
-        error instanceof ApiError ? error.message : "Could not start checkout."
-      );
+      setCheckoutErrorKey(errorMessageKey(error));
+      console.error(`Checkout failed [${errorCodeOf(error)}]`, error);
       setIsStartingCheckout(false);
     }
     // No `finally`: on success the browser is navigating away, and re-enabling
@@ -360,7 +363,7 @@ export default function HomePage() {
           me={me}
           onSubscribe={handleSubscribe}
           isStarting={isStartingCheckout}
-          errorMessage={checkoutError}
+          errorMessageKey={checkoutErrorKey}
         />
       </div>
 

@@ -15,6 +15,29 @@ export function createApp() {
   const app = express();
 
   // ---------------------------------------------------------------------
+  // Two small hardening steps. Both are one line and cost nothing.
+  // ---------------------------------------------------------------------
+
+  // Express advertises itself with "X-Powered-By: Express" on every response.
+  // That tells an attacker which framework - and therefore which published
+  // vulnerabilities - to try first. There is no reason to volunteer it.
+  app.disable("x-powered-by");
+
+  // Tells the browser to believe our Content-Type instead of guessing from the
+  // bytes. Without it a browser can decide a JSON response "looks like" HTML or
+  // a script and treat it as one - which is how a reflected value in an API
+  // response turns into a scripting bug.
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    next();
+  });
+
+  // Deliberately NOT using helmet here. Most of what it sets - Content-Security
+  // -Policy, HSTS, frame options - protects HTML pages, and this server returns
+  // only JSON. Two explicit headers we can explain beat a dependency whose
+  // defaults we would have to look up.
+
+  // ---------------------------------------------------------------------
   // Middleware. Express runs these in the order they are registered, so the
   // order below is literally the order every request travels through.
   // ---------------------------------------------------------------------

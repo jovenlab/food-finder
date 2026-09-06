@@ -12,10 +12,41 @@
 import { env } from "../config/env";
 import { prisma } from "../prisma";
 import { getStripe, getStripePriceId } from "../stripe";
-import { conflict, badGateway } from "../errors/AppError";
+import { AppError, conflict, badGateway } from "../errors/AppError";
 import { requireDemoUser } from "./user.service";
 import { getSubscriptionState } from "./subscription.service";
 import type { User } from "../generated/prisma/client";
+
+// Runs a Stripe call and converts any failure into a clean error for the caller.
+//
+// Two problems this solves, both found by walking the edge cases in Milestone 20:
+//
+//   * WRONG STATUS. An unhandled Stripe error reached the generic handler as a
+//     500 - "our bug". Stripe being unreachable, rate-limiting us, or rejecting
+//     our key is not a bug in this code; 502 says "a service we depend on
+//     failed", which is what actually happened.
+//
+//   * LEAKED DETAIL. Stripe's messages are written for the developer and quote
+//     our configuration back at us - "Invalid API Key provided: sk_test_***0000"
+//     went straight into the HTTP response. Same rule as everywhere else: the
+//     detail goes to the log, the caller gets a sentence we wrote.
+async function callStripe<T>(description: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    // Our own deliberate errors (missing configuration) already say the right
+    // thing, so let them past untouched.
+    if (error instanceof AppError) throw error;
+
+    const detail = error instanceof Error ? error.message : "unknown error";
+    console.error(`Stripe call failed (${description}): ${detail}`);
+
+    throw badGateway(
+      "Could not reach Stripe. Please try again in a moment.",
+      "STRIPE_ERROR"
+    );
+  }
+}
 
 // Finds or creates the Stripe Customer that represents our demo user.
 //
@@ -27,6 +58,9 @@ export async function ensureStripeCustomer(user: User): Promise<string> {
 
   if (user.stripeCustomerId !== null) {
     try {
+      // Not wrapped in callStripe: a failure here is EXPECTED and recoverable -
+      // the id may simply no longer exist - so we fall through and make a new
+      // customer rather than failing the request.
       const existing = await stripe.customers.retrieve(user.stripeCustomerId);
 
       // A customer deleted in the Stripe dashboard still resolves, but comes
@@ -39,13 +73,15 @@ export async function ensureStripeCustomer(user: User): Promise<string> {
     }
   }
 
-  const customer = await stripe.customers.create({
-    email: user.email,
-    name: user.name,
-    // Our own id, stored on Stripe's copy. This is what lets a webhook in
-    // Milestone 15 work out which of OUR users an event belongs to.
-    metadata: { appUserId: String(user.id) },
-  });
+  const customer = await callStripe("create customer", () =>
+    stripe.customers.create({
+      email: user.email,
+      name: user.name,
+      // Our own id, stored on Stripe's copy. This is what lets a webhook in
+      // Milestone 15 work out which of OUR users an event belongs to.
+      metadata: { appUserId: String(user.id) },
+    })
+  );
 
   await prisma.user.update({
     where: { id: user.id },
@@ -81,28 +117,30 @@ export async function createCheckoutSession(): Promise<CheckoutSession> {
   const stripe = getStripe();
   const customerId = await ensureStripeCustomer(user);
 
-  const session = await stripe.checkout.sessions.create({
-    // "subscription" (not "payment") is what makes this a recurring charge.
-    // The monthly interval itself lives on the Price, configured in Stripe.
-    mode: "subscription",
-    customer: customerId,
-    line_items: [{ price: getStripePriceId(), quantity: 1 }],
+  const session = await callStripe("create checkout session", () =>
+    stripe.checkout.sessions.create({
+      // "subscription" (not "payment") is what makes this a recurring charge.
+      // The monthly interval itself lives on the Price, configured in Stripe.
+      mode: "subscription",
+      customer: customerId,
+      line_items: [{ price: getStripePriceId(), quantity: 1 }],
 
-    // Where Stripe sends the browser afterwards.
-    //
-    // {CHECKOUT_SESSION_ID} is a placeholder Stripe substitutes for the real id.
-    // We pass it back so the interface can tell a genuine return from someone
-    // simply typing the success URL - though note that even a real session id
-    // is NOT proof of payment. Only the webhook is.
-    success_url: `${env.frontendOrigin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.frontendOrigin}/?checkout=cancelled`,
+      // Where Stripe sends the browser afterwards.
+      //
+      // {CHECKOUT_SESSION_ID} is a placeholder Stripe substitutes for the real
+      // id. We pass it back so the interface can tell a genuine return from
+      // someone simply typing the success URL - though note that even a real
+      // session id is NOT proof of payment. Only the webhook is.
+      success_url: `${env.frontendOrigin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${env.frontendOrigin}/?checkout=cancelled`,
 
-    // Two more places to record who this is, both readable from webhook events.
-    client_reference_id: String(user.id),
-    subscription_data: {
-      metadata: { appUserId: String(user.id) },
-    },
-  });
+      // Two more places to record who this is, both readable from webhooks.
+      client_reference_id: String(user.id),
+      subscription_data: {
+        metadata: { appUserId: String(user.id) },
+      },
+    })
+  );
 
   // Stripe types `url` as nullable because it is absent for some session types.
   // For a hosted Checkout session it is always present, so an absence here means

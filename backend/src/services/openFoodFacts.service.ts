@@ -247,20 +247,33 @@ async function fetchSearchPayload(url: string): Promise<unknown> {
       );
     }
 
+    // The underlying message goes to the LOG, never to the caller.
+    //
+    // AppError messages are shown to whoever made the request, so interpolating
+    // a third-party error message into one hands them whatever that message
+    // happens to contain. Node's network errors quote the URL being fetched -
+    // and a misconfigured OFF_BASE_URL could hold credentials. A test caught
+    // exactly this: a connection string with a password reached the response.
     const base = error instanceof Error ? error.message : "unknown network error";
     const detail = describeNetworkCause(error);
 
-    throw badGateway(
-      `Could not reach Open Food Facts: ${base}${detail ? ` (${detail})` : ""}`
+    console.error(
+      `Open Food Facts request failed: ${base}${detail ? ` (${detail})` : ""}`
     );
+
+    throw badGateway("Could not reach Open Food Facts.");
   }
 
   // A 4xx or 5xx from them. Note 429 means we exceeded their rate limit of
   // roughly 10 searches per minute.
   if (!response.ok) {
-    throw badGateway(
-      `Open Food Facts responded with HTTP ${response.status} ${response.statusText}.`
+    // The status code is ours to report and reveals nothing about us.
+    // `statusText` comes from the remote server, so it stays in the log.
+    console.error(
+      `Open Food Facts responded with HTTP ${response.status} ${response.statusText}`
     );
+
+    throw badGateway(`Open Food Facts responded with HTTP ${response.status}.`);
   }
 
   try {

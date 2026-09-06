@@ -19,6 +19,14 @@ const MESSAGE_KEYS: Record<string, TranslationKey> = {
   SEARCH_TERM_TOO_LONG: "errorTooLong",
   UNSUPPORTED_LANGUAGE: "errorUnsupportedLanguage",
   INTERNAL_ERROR: "errorGeneric",
+
+  // Checkout-specific failures.
+  STRIPE_ERROR: "errorStripe",
+  STRIPE_NO_CHECKOUT_URL: "errorStripe",
+  STRIPE_NOT_CONFIGURED: "errorStripeNotConfigured",
+  ALREADY_SUBSCRIBED: "errorAlreadySubscribed",
+  DEMO_USER_MISSING: "errorGeneric",
+  DATABASE_UNAVAILABLE: "errorGeneric",
 };
 
 const FALLBACK_KEY: TranslationKey = "errorGeneric";
@@ -40,6 +48,9 @@ const RETRYABLE_CODES = new Set([
   "EXTERNAL_API_TIMEOUT",
   "INTERNAL_ERROR",
   "UNKNOWN_ERROR",
+  // Stripe being briefly unreachable is exactly the case retrying fixes.
+  "STRIPE_ERROR",
+  "DATABASE_UNAVAILABLE",
 ]);
 
 export function isRetryable(error: unknown): boolean {

@@ -67,8 +67,8 @@ export function NutritionPanel({
       <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
         {rows.map((row) => (
           <div key={row.field} className="col-span-2 flex justify-between gap-2">
-            <dt className="text-gray-500 dark:text-gray-400">{t(row.key)}</dt>
-            <dd className="font-medium tabular-nums">
+            <dt className="min-w-0 break-words text-gray-500 dark:text-gray-400">{t(row.key)}</dt>
+            <dd className="shrink-0 font-medium tabular-nums">
               {/* Numbers are formatted for the selected language: 27.5 in
                   English, 27,5 in Dutch, German and French. */}
               {nutrition[row.field]!.toLocaleString(language)} {row.unit}

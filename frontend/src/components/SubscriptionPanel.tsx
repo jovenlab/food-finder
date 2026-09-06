@@ -16,12 +16,12 @@ export function SubscriptionPanel({
   me,
   onSubscribe,
   isStarting,
-  errorMessage,
+  errorMessageKey,
 }: {
   me: MeResponse | null;
   onSubscribe: () => void;
   isStarting: boolean;
-  errorMessage: string | null;
+  errorMessageKey: TranslationKey | null;
 }) {
   const { language, t } = useLanguage();
 
@@ -82,9 +82,9 @@ export function SubscriptionPanel({
         {isStarting ? t("subscribeStarting") : t("subscribeButton")}
       </button>
 
-      {errorMessage && (
+      {errorMessageKey && (
         <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">
-          {errorMessage}
+          {t(errorMessageKey)}
         </p>
       )}
 
