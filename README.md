@@ -1,305 +1,324 @@
 # Food Finder
 
-A small full-stack application for searching packaged food products. Users type a
-product name, the backend fetches matching products from the
-[Open Food Facts](https://world.openfoodfacts.org/) API, and the results are shown
-in a responsive interface available in English, Dutch, German and French.
+Search packaged food products from [Open Food Facts](https://world.openfoodfacts.org),
+in English, Dutch, German or French. Anyone can see a product's name, brand and
+photo. Detailed nutritional values require an active Stripe subscription, and
+that rule is enforced by the backend.
 
-Basic product information (name, brand, image) is public. **Detailed nutritional
-information is only available when the demo user holds an active Stripe
-subscription**, and that rule is enforced by the backend rather than by hiding
-elements in the UI.
-
-> **Status: in development.** This README is written alongside the work, so it
-> describes what actually exists today. See [Current status](#current-status) for
-> exactly which parts are built and which are not.
+Built as a technical assignment. Everything runs locally; Stripe runs in test
+mode and never touches real money.
 
 ---
 
-## Table of contents
+## Contents
 
+- [What it does](#what-it-does)
 - [Architecture](#architecture)
-- [Technology](#technology)
-- [Current status](#current-status)
-- [Project structure](#project-structure)
-- [Setup](#setup)
-- [Running the application](#running-the-application)
-- [Environment variables](#environment-variables)
-- [Database schema](#database-schema)
-- [Working with the database](#working-with-the-database)
+- [Setup](#setup) — start here on a new machine
+- [Running it](#running-it)
+- [Running the tests](#running-the-tests)
+- [Database](#database)
+- [Internationalization](#internationalization)
+- [Subscriptions](#subscriptions)
 - [Technical decisions](#technical-decisions)
 - [Known limitations](#known-limitations)
-- [Roadmap](#roadmap)
+- [Project layout](#project-layout)
+
+---
+
+## What it does
+
+| | |
+|---|---|
+| **Search** | Type a term, get products from Open Food Facts — name, brand, photo, quantity |
+| **Four languages** | English, Dutch, German, French. Chosen manually; the interface *and* product names follow |
+| **Recent searches** | Stored in MySQL against the demo user, offered back as one-click shortcuts |
+| **Subscription** | Monthly, via Stripe Checkout in test mode |
+| **Protected data** | Nutritional values are returned **only** to a subscriber — decided on the server |
+
+Everything is public except the nutritional values.
 
 ---
 
 ## Architecture
 
 ```text
-                        Browser
-                           |
-                           |  1. loads the page
-                           v
-              Next.js frontend  (localhost:3000)
-                           |
-                           |  2. fetch("/api/...")  - from the browser
-                           v
-              Express backend   (localhost:4000)
-                  |         |          |
-                  |         |          +--> Stripe API      (checkout, subscriptions)
-                  |         |                   ^
-                  |         |                   |  webhook: "subscription updated"
-                  |         |                   +---------------------------+
-                  |         |                                               |
-                  |         +--> Open Food Facts API  (product search)      |
-                  |                                                         |
-                  v                                                         |
-               Prisma  ---->  MySQL  <----  MySQL Workbench (manual inspection)
+                    Browser
+                       |
+                       |  HTTP  (only ever to our own backend)
+                       v
+        +------------------------------+
+        |   Next.js frontend  :3000    |   React, TypeScript, Tailwind
+        +------------------------------+
+                       |
+                       |  GET /products/search, /me, /searches/recent
+                       |  POST /checkout/session
+                       v
+        +------------------------------+
+        |   Express backend   :4000    |   TypeScript
+        +------------------------------+
+           |            |            |
+           |            |            +--------> Stripe  (Checkout, subscriptions)
+           |            |                          |
+           |            |            webhook       |  POST /stripe/webhook
+           |            |            <-------------+
+           |            |
+           |            +---------------------> Open Food Facts  (product data)
+           |
+           v
+        Prisma  (typed database client)
+           |
+           v
+        MySQL  :3306
+           ^
+           |  SQL typed by hand
+        MySQL Workbench
 ```
 
-Two rules shape this diagram:
+### Why a separate backend at all
 
-1. **The frontend never calls Open Food Facts or Stripe directly.** All external
-   calls go through the backend. Anything running in the browser is visible and
-   modifiable by the user, so secrets and access rules cannot live there.
-2. **The browser talks to both servers; the servers do not talk to each other.**
-   Next.js serves the page; the page then calls Express from the browser. This is
-   why CORS configuration is required.
+The browser never talks to Open Food Facts or Stripe directly. Three reasons,
+and the third is the important one:
 
-### Request flow for a product search
+1. The browser would be blocked by CORS.
+2. Open Food Facts requires a `User-Agent` identifying the application, which a
+   browser will not let us set.
+3. **Nutritional data must be withheld from non-subscribers.** That is impossible
+   if the browser fetches the data itself — and equally impossible if the backend
+   sends the values and React merely declines to render them. Anyone can open
+   DevTools. The rule can only live where the data is produced.
 
-```text
-Browser  ->  Express route  ->  Open Food Facts  ->  transform response
-                    |                                       |
-                    +-> Prisma -> MySQL (save recent search) |
-                    |                                       |
-                    +-> check subscription state in MySQL <--+
-                    |
-                    +-> respond with product data,
-                        including nutrition ONLY if subscribed
-```
-
----
-
-## Technology
-
-| Layer | Choice | Version |
-|---|---|---|
-| Frontend framework | Next.js (App Router) | 16.3.4 |
-| UI library | React | 19.2.8 |
-| Styling | Tailwind CSS | 4 |
-| Backend framework | Express | 5.2.1 |
-| Language | TypeScript | 7.0 (backend) / 5 (frontend) |
-| ORM | Prisma | 7.10.0 |
-| Database | MySQL | 8.0.46 |
-| MySQL driver | @prisma/adapter-mariadb | 7.10.0 |
-| Payments | Stripe (test mode) | not yet integrated |
-| External data | Open Food Facts API | not yet integrated |
-
-Runtime: Node.js 24.
-
----
-
-## Current status
-
-Built and verified:
-
-- [x] Separate frontend and backend projects, both in TypeScript
-- [x] Express backend with a `GET /health` endpoint
-- [x] CORS configured so the browser may call the backend
-- [x] Next.js frontend that reports backend connectivity
-- [x] MySQL database and a dedicated, least-privilege application user
-- [x] Prisma installed and connected to MySQL (connection and write access verified)
-- [x] All configuration read from environment variables
-- [x] Database schema designed and applied via a Prisma migration
-- [x] Demo user created by a repeatable seed script
-
-Not built yet:
-
-- [ ] Open Food Facts integration
-- [ ] Product search endpoint and search UI
-- [ ] Internationalization (EN / NL / DE / FR)
-- [ ] Recent searches persistence
-- [ ] Stripe Checkout, webhooks, and subscription state
-- [ ] Backend-enforced access control for nutritional information
-- [ ] Automated tests
-
----
-
-## Project structure
+### How a search flows
 
 ```text
-food-finder/
-├─ README.md
-├─ .gitignore
-├─ backend/                     Express API - the only part that holds secrets
-│  ├─ src/
-│  │  ├─ index.ts               Express app, middleware, routes
-│  │  ├─ prisma.ts              The one shared database client
-│  │  └─ generated/prisma/      Prisma's generated client - not committed
-│  ├─ prisma/
-│  │  ├─ schema.prisma          Database structure: User, Subscription, Search
-│  │  ├─ seed.ts                Creates the demo user
-│  │  └─ migrations/            Applied schema changes, as SQL
-│  ├─ db/
-│  │  └─ 01-create-database.sql One-time MySQL setup, run manually in Workbench
-│  ├─ prisma7.config.ts         Prisma CLI config; reads DATABASE_URL from the env
-│  ├─ .env                      Real secrets - git-ignored, never committed
-│  ├─ .env.example              Template listing every required variable
-│  └─ tsconfig.json
-└─ frontend/                    Next.js UI - contains no secrets
-   ├─ src/app/
-   │  ├─ layout.tsx             HTML shell shared by every page
-   │  ├─ page.tsx               Home page
-   │  └─ globals.css            Tailwind entry point
-   ├─ .env.local                Local config - git-ignored
-   └─ .env.example
+1. User types "chocolate" and submits
+2. Frontend  ->  GET /products/search?q=chocolate&lang=de
+3. Backend       validates the input
+4. Backend   ->  Open Food Facts, asking for German fields
+5. Backend       converts 200+ raw fields into our own 9-field shape
+6. Backend       writes the search to MySQL (failure here never breaks the search)
+7. Backend       asks: may this user see nutrition?   <-- the access decision
+8. Backend   ->  JSON, with nutrition values only if the answer was yes
+9. Frontend      renders cards; missing data shows a fallback, never "null"
 ```
 
 ---
 
 ## Setup
 
-### Prerequisites
+Written for a machine that has never seen this project.
 
-- Node.js 20 or newer (developed on 24)
-- MySQL Server 8.0, running
-- MySQL Workbench (used for all manual database inspection)
-- Git
+### 1. Prerequisites
 
-### 1. Install dependencies
+| Tool | Version used | Check |
+|---|---|---|
+| Node.js | 24.x | `node -v` |
+| npm | 11.x | `npm -v` |
+| MySQL Server | 8.x | should be running on port 3306 |
+| MySQL Workbench | any | optional, but the database instructions assume it |
+| Stripe CLI | any | only needed for webhooks — [install](https://docs.stripe.com/stripe-cli) |
+
+A free [Stripe account](https://dashboard.stripe.com/register) is needed for the
+subscription parts. **Everything else works without one.**
+
+### 2. Install dependencies
 
 ```bash
-cd backend
-npm install
-
-cd ../frontend
-npm install
+npm run install:all
 ```
 
-### 2. Create the database
+Or by hand:
+
+```bash
+cd backend  && npm install
+cd ../frontend && npm install
+```
+
+> Installing the backend also runs `prisma generate`, which creates the typed
+> database client in `backend/src/generated/`. That folder is deliberately not
+> committed — it is generated from `schema.prisma`. Nothing compiles before it
+> exists, which is why it is wired to `postinstall` rather than left as a step to
+> remember.
+
+### 3. Create the database
 
 Open **MySQL Workbench**, connect as `root`, and open
 `backend/db/01-create-database.sql`.
 
-Before running it, replace `choose-a-strong-password` with a password of your own.
-Avoid the characters `@ : / ? # %` - they have special meaning inside a connection
-URL and would need escaping.
+**Edit one line first** — replace `choose-a-strong-password` with a password of
+your own:
 
-Execute the whole script (**Ctrl+Shift+Enter**). It creates:
+```sql
+CREATE USER IF NOT EXISTS 'food_finder_app'@'localhost'
+  IDENTIFIED BY 'choose-a-strong-password';
+```
 
-| Object | Purpose |
-|---|---|
-| `food_finder` | The application database |
-| `food_finder_shadow` | Scratch database Prisma uses to validate migrations |
-| `food_finder_app`@`localhost` | Application user, with rights on those two databases only |
+Then run the whole script (⚡ icon). It creates:
 
-### 3. Configure environment variables
+- `food_finder` — the application database
+- `food_finder_shadow` — a scratch database Prisma uses to verify migrations
+- `food_finder_app` — a dedicated user with rights on **those two databases only**,
+  so the application never connects as `root`
+
+The script ends by printing what it made, so you can confirm it worked.
+
+### 4. Configure the backend
 
 ```bash
 cd backend
-cp .env.example .env
+cp .env.example .env      # Windows: copy .env.example .env
+```
 
+Open `.env` and set both database URLs, using the password from step 3:
+
+```ini
+DATABASE_URL="mysql://food_finder_app:YOUR_PASSWORD@localhost:3306/food_finder"
+SHADOW_DATABASE_URL="mysql://food_finder_app:YOUR_PASSWORD@localhost:3306/food_finder_shadow"
+```
+
+`DATABASE_URL` is the only setting the server refuses to start without. Leave the
+Stripe values blank for now.
+
+`.env.example` documents every variable, including the optional ones.
+
+### 5. Configure the frontend
+
+```bash
 cd ../frontend
-cp .env.example .env.local
+cp .env.example .env.local      # Windows: copy .env.example .env.local
 ```
 
-Edit `backend/.env` and put your chosen password into **both** connection URLs.
+The default is correct for local development. Nothing secret goes in this file —
+anything named `NEXT_PUBLIC_*` is compiled into the JavaScript every visitor
+downloads.
 
-### 4. Create the tables and the demo user
+### 6. Create the tables and the demo user
 
 ```bash
-cd backend
-npm run db:migrate     # applies prisma/migrations - creates the three tables
-npm run db:seed        # inserts the demo user
+cd ../backend
+npm run db:deploy    # applies the existing migration
+npm run db:seed      # inserts the demo user (safe to run repeatedly)
 ```
 
-Expected output ends with `Demo user ready: id=1, email=demo@foodfinder.local`.
+Confirm in Workbench:
 
-Verify at any time with:
+```sql
+USE food_finder;
+SHOW TABLES;                -- user, search, subscription, _prisma_migrations
+SELECT * FROM user;         -- one row: demo@foodfinder.local
+```
+
+### 7. Stripe (optional — skip to run without subscriptions)
+
+With the dashboard's **Test mode** toggle **ON**:
+
+1. **Developers → API keys** → copy the **Secret key** (`sk_test_…`).
+2. **Product catalogue → Add product** → name it, choose **Recurring**,
+   **Monthly**, any amount → save → copy the **price id** (`price_…`, *not*
+   `prod_…`).
+3. Put both in `backend/.env`.
+4. Verify:
+
+   ```bash
+   npm run stripe:check
+   ```
+
+   It checks the key works, that Stripe itself reports `livemode: false`, and
+   that the price really is billed monthly.
+
+For webhooks, in a separate terminal:
 
 ```bash
-npx prisma migrate status
+stripe login
+stripe listen --forward-to localhost:4000/stripe/webhook
 ```
 
-Expected: `Datasource "db": MySQL database "food_finder" at "localhost:3306"` and
-`Database schema is up to date!`.
+Copy the `whsec_…` it prints into `STRIPE_WEBHOOK_SECRET` and **restart the
+backend**. That secret changes every time you restart `stripe listen`.
+
+> A live key (`sk_live_…`) is **rejected at startup**. This project is test-mode
+> only.
 
 ---
 
-## Running the application
+## Running it
 
-Two terminals, one per server.
-
-```bash
-# Terminal 1 - backend on http://localhost:4000
-cd backend
-npm run dev
-```
+Two terminals:
 
 ```bash
-# Terminal 2 - frontend on http://localhost:3000
-cd frontend
-npm run dev
+# Terminal 1
+cd backend && npm run dev      # http://localhost:4000
+
+# Terminal 2
+cd frontend && npm run dev     # http://localhost:3000
 ```
 
-Then open <http://localhost:3000>. The page shows a **"Backend is online"** panel
-when it can reach the API.
+Open <http://localhost:3000> and search for `nutella`.
 
-### Health check
+### Checking the backend on its own
 
-```bash
-curl http://localhost:4000/health
-```
+<http://localhost:4000/health>
 
 ```json
-{ "status": "ok", "service": "food-finder-backend", "timestamp": "..." }
+{
+  "status": "ok",
+  "database": { "status": "ok" },
+  "stripe": { "configured": true, "webhookConfigured": true, "mode": "test" }
+}
 ```
 
-### Troubleshooting
+`"status": "degraded"` with HTTP 503 means the server is running but MySQL is
+not reachable. `"stripe": { "configured": false }` is fine — the rest works.
 
-| Symptom | Cause and fix |
+The full API is documented in [`backend/API.md`](backend/API.md).
+
+### If something is wrong
+
+| Symptom | Cause |
 |---|---|
-| `EADDRINUSE` on 3000 or 4000 | An orphaned dev server. Find it with `Get-NetTCPConnection -LocalPort 4000 -State Listen`, confirm with `Get-Process -Id <PID>`, then `Stop-Process -Id <PID> -Force`. |
-| Page shows "Backend is not reachable" | The backend is not running, or `NEXT_PUBLIC_API_URL` points somewhere else. |
-| Console shows a CORS error | `FRONTEND_ORIGIN` in `backend/.env` must exactly match the frontend origin. |
-| `ERROR 1045 (28000): Access denied` | Wrong MySQL password. The server is fine - only the credentials are wrong. |
-| `Can't connect to MySQL server ... 10061` | The MySQL service is stopped. Start the `MySQL80` service. |
+| `Missing required environment variable: DATABASE_URL` | `.env` missing or the line is commented out |
+| Server starts, but `/health` says `"status": "degraded"` | You copied `.env.example` without replacing `YOUR_PASSWORD_HERE`. The server starts because the URL is well-formed; it only fails when it first uses the database |
+| `Demo user … not found` | Run `npm run db:seed` |
+| `RSA public key is not available` | MySQL restarted and cleared its auth cache — already handled in `src/prisma.ts`; make sure the backend restarted too |
+| `502 EXTERNAL_API_ERROR` on every search | Open Food Facts rate-limits at ~10 searches/minute. Wait a minute |
+| Frontend says "Could not reach the server" | The backend is not running, or `NEXT_PUBLIC_API_URL` is wrong |
+| `400 INVALID_SIGNATURE` on genuine webhooks | `STRIPE_WEBHOOK_SECRET` does not match the current `stripe listen`; update it and restart |
 
 ---
 
-## Environment variables
+## Running the tests
 
-Real values live in `.env` files, which are **git-ignored**. Each `.env.example`
-is committed so a new developer knows what is required without ever seeing a
-secret.
+```bash
+npm test              # from the project root: both suites
+npm run test:backend  # 60 tests
+npm run test:frontend # 50 tests
+```
 
-### `backend/.env`
+Watch mode, from inside `backend/` or `frontend/`:
 
-| Variable | Purpose |
-|---|---|
-| `PORT` | Port the Express server listens on (default 4000) |
-| `FRONTEND_ORIGIN` | Origin allowed to call the API (CORS) |
-| `DATABASE_URL` | MySQL connection string used by Prisma |
-| `SHADOW_DATABASE_URL` | Scratch database used when running development migrations |
+```bash
+npm run test:watch
+```
 
-Stripe variables are added in a later milestone.
+**No test needs MySQL, Stripe, or an internet connection.** Open Food Facts is
+stubbed and Prisma is replaced with a spy, so the suite is fast and cannot fail
+at random. Stripe webhook signatures, however, are **real** — signed with the
+SDK's own helper, so the tests exercise the genuine verification path.
 
-### `frontend/.env.local`
+Reading a failure:
 
-| Variable | Purpose |
-|---|---|
-| `NEXT_PUBLIC_API_URL` | Base URL of the backend |
+```text
+FAIL tests/subscription.test.ts > isSubscriptionLive > denies access while a payment is failing
+AssertionError: expected true to be false
+```
 
-> Next.js only exposes variables prefixed with `NEXT_PUBLIC_` to the browser.
-> **Never give a secret that prefix**, and never place a secret in the frontend at
-> all - everything the frontend receives is readable by the user.
+That is *file → group → test name*, then expected versus actual.
 
 ---
 
-## Database schema
+## Database
 
-Three tables, created by `prisma/migrations/`.
+Three tables, created by `backend/prisma/migrations/`.
 
 ```text
        User                          Subscription
@@ -323,26 +342,44 @@ Three tables, created by `prisma/migrations/`.
                            +--------------------------+
 ```
 
-**`User`** - identity only. One row: the demo user. `stripeCustomerId` is null
-until the user first goes through Stripe Checkout.
+**`User`** — identity only. One row: the demo user. `stripeCustomerId` is null
+until the first trip through Stripe Checkout.
 
-**`Subscription`** - a local copy of what Stripe knows, kept current by webhooks.
-Stripe remains the source of truth; this table exists so that answering "may this
-user see nutrition data?" is a fast local query instead of an API call to Stripe
-on every request.
+**`Subscription`** — a local copy of what Stripe knows, kept current by webhooks.
+Stripe stays the source of truth; this table exists so that answering "may this
+user see nutrition?" is one fast local query rather than an API call to Stripe on
+every request.
 
-**`Search`** - one row per search performed, satisfying the "store recent searches
-in MySQL" requirement.
+**`Search`** — one row per search performed. Append-only: it is a log, not a
+unique list. Duplicates are collapsed when *read*.
 
 | Term | Meaning |
 |---|---|
-| **Primary key (PK)** | The column that uniquely identifies a row. Ours are `INT AUTO_INCREMENT`, so MySQL assigns 1, 2, 3, ... |
-| **Foreign key (FK)** | A column pointing at another table's primary key. MySQL refuses to store a `Search.userId` that has no matching `User.id`, so orphaned rows cannot exist. |
-| **Unique index (U)** | Guarantees no two rows share a value. `Subscription.stripeSubscriptionId` is unique so an incoming webhook matches exactly one row. |
-| **Index** | A lookup structure that makes a common query fast. `Search(userId, createdAt)` matches "this user's searches, newest first". |
-| **`ON DELETE CASCADE`** | Deleting a user automatically deletes their searches and subscriptions, instead of leaving rows pointing at a user that no longer exists. |
+| **Primary key (PK)** | Uniquely identifies a row. Ours are `INT AUTO_INCREMENT` |
+| **Foreign key (FK)** | Points at another table's primary key. MySQL refuses a `Search.userId` with no matching `User.id`, so orphaned rows cannot exist |
+| **Unique index (U)** | No two rows share the value. `stripeSubscriptionId` is unique so a webhook matches exactly one row |
+| **Index** | Makes a common query fast. `Search(userId, createdAt)` matches "this user's searches, newest first" |
+| **`ON DELETE CASCADE`** | Deleting a user deletes their searches and subscriptions too |
 
-### Inspecting it in MySQL Workbench
+### Prisma and Workbench are two doors into the same database
+
+```text
+Application code
+      |  prisma.user.findMany()
+      v
+   Prisma            translates method calls into SQL
+      |  SELECT * FROM User
+      v
+   MySQL             stores the data
+      ^
+      |  SQL typed by hand
+MySQL Workbench
+```
+
+Prisma is how the *application* reads and writes. Workbench is how *you* inspect
+the result. Using Prisma does not remove the need to understand MySQL.
+
+### Inspecting it
 
 ```sql
 USE food_finder;
@@ -350,152 +387,282 @@ USE food_finder;
 SHOW TABLES;
 DESCRIBE user;
 SELECT * FROM user;
-SELECT * FROM search ORDER BY createdAt DESC;
+SELECT * FROM search ORDER BY createdAt DESC LIMIT 10;
+SELECT * FROM subscription;
 
--- Foreign keys and indexes
+-- foreign keys and indexes
 SHOW CREATE TABLE search;
 ```
 
-## Working with the database
-
-Prisma and MySQL Workbench are two doors into the same database:
-
-```text
-Application code
-      |  prisma.user.findMany()
-      v
-   Prisma                  translates method calls into SQL
-      |  SELECT * FROM User
-      v
-   MySQL                   stores the data
-      ^
-      |  SQL typed by hand
-MySQL Workbench
-```
-
-Prisma is how the *application* reads and writes data. Workbench is how *you*
-inspect the result. Using Prisma does not remove the need to understand MySQL -
-after every database operation the code performs, the effect can be seen directly
-in Workbench.
-
-Useful commands, all run from `backend/`:
+### Commands, all from `backend/`
 
 | Command | What it does |
 |---|---|
-| `npm run db:migrate` | Creates and applies a migration from the current schema |
-| `npm run db:seed` | Inserts the demo user (safe to run repeatedly) |
-| `npm run db:studio` | Opens a browser-based table viewer |
-| `npx prisma migrate status` | Shows which migrations have been applied |
-| `npx prisma generate` | Regenerates the typed client after a schema change |
-| `npx prisma migrate reset` | Drops everything, re-applies all migrations, re-seeds |
+| `npm run db:deploy` | Applies existing migrations (use this on a fresh clone) |
+| `npm run db:migrate` | Creates **and** applies a new migration after a schema change |
+| `npm run db:seed` | Inserts the demo user; safe to repeat |
+| `npm run db:studio` | Browser-based table viewer |
+| `npx prisma migrate status` | Which migrations have been applied |
+| `npx prisma generate` | Regenerates the typed client (also runs on `npm install`) |
+| `npx prisma migrate reset` | ⚠️ Drops everything, re-applies migrations, re-seeds |
 
-In Workbench, refresh the **SCHEMAS** sidebar after any migration to see the
-resulting tables.
+Refresh the **SCHEMAS** sidebar in Workbench after a migration.
+
+---
+
+## Internationalization
+
+Two separate problems, handled differently.
+
+### Interface text — ours to translate
+
+Every visible string lives in `frontend/src/lib/i18n/translations.ts`: 51 strings
+in each of four languages. Components call `t("key")`; the chosen language is
+stored in `localStorage` and read through React Context.
+
+TypeScript enforces completeness. English defines the keys, and the other three
+are typed `Record<TranslationKey, string>` — so a missing German string **fails
+the build** rather than showing a blank on screen.
+
+No i18n library. `next-intl` requires `[locale]` URL routing, which restructures
+the whole app; `react-i18next` is a large dependency. For 51 strings a dictionary
+and a `t()` function are less code and entirely explainable.
+
+Sentences with values use placeholders — `"{count} van {total} resultaten"` —
+because word order differs per language. A test asserts every placeholder
+survives translation in every language.
+
+### Product names — not ours to translate
+
+We ask Open Food Facts for a language and use what exists. We never invent a
+translation.
+
+Open Food Facts does not have every product in every language. Measured on a
+live search for "chocolate" requesting Dutch: **only 5 of 20 names were actually
+Dutch** — the rest were French, English, Spanish and Italian.
+
+So each product reports which language its name is *really* in:
+
+```json
+{ "name": "Fourrés Chocolat Noir", "nameLanguage": "fr" }
+```
+
+When that differs from the language you chose, the card shows a small `FR` badge
+explaining the product has no name in the selected language. The alternative —
+silently presenting French text as Dutch — would be a lie.
+
+Number formatting follows the language too: `129,160` in English, `129.160` in
+Dutch and German, `129 160` in French.
+
+### The language selector
+
+A plain `<select>`, chosen manually. There is **no** automatic detection: the
+assignment requires an explicit choice, and auto-detection surprises people
+(a Dutch speaker on a German laptop gets German with no obvious way out).
+
+Changing language re-runs the current search, so product names update too.
+
+---
+
+## Subscriptions
+
+### The flow
+
+```text
+User clicks Subscribe
+      |
+      v
+POST /checkout/session          backend creates a Stripe Checkout Session
+      |                         (card details never touch our server)
+      v
+checkout.stripe.com             user pays with test card 4242 4242 4242 4242
+      |
+      v
+back to our page                "Payment received, confirming…"
+      |                          <-- NOT "you are subscribed"
+      v
+Stripe  ->  POST /stripe/webhook    signature verified, subscription row written
+      |
+      v
+access granted
+```
+
+### Why returning from Checkout proves nothing
+
+`success_url` is an ordinary URL. Anyone can type it, bookmark it, or share it.
+A user can also close the tab before paying, or the card can fail after the
+redirect.
+
+So the page shows "confirming…" and polls the server. The subscription becomes
+real only when **Stripe tells our server**, in a request we verify
+cryptographically.
+
+### Webhooks
+
+`POST /stripe/webhook` is publicly reachable, so every request is verified
+against `STRIPE_WEBHOOK_SECRET` before a single field is read. Without that check
+the endpoint would be a free-subscription button.
+
+Verification needs the **raw** request body — Stripe signs exact bytes, and
+re-serialising parsed JSON produces different ones. `app.ts` therefore registers
+`express.raw()` for that one path *before* `express.json()`. That ordering is
+load-bearing.
+
+Status codes are instructions to Stripe: `200` understood, `400` never retry
+(unverifiable), `500` please retry (we failed, the payment is real).
+
+Every write is an upsert keyed on Stripe's subscription id, so a replayed event
+produces an identical row rather than a duplicate.
+
+### Local subscription state
+
+| Stripe status | Access | Why |
+|---|---|---|
+| `active`, `trialing` | ✅ | Paid and current |
+| `active` + `cancelAtPeriodEnd` | ✅ | They paid for the remaining time |
+| `active` but period **expired** | ❌ | Safety net against a webhook we never received |
+| `past_due`, `unpaid`, `incomplete`, `canceled`, `paused` | ❌ | Not currently paid for |
+
+Access is granted if **any** subscription row is live, not just the newest —
+webhooks can arrive out of order, so "most recently inserted" is not reliably
+"current subscription".
+
+### Backend authorization
+
+Three separate layers, because they change for different reasons:
+
+| Layer | File | Question |
+|---|---|---|
+| Identity | `user.service.ts` | Who is this? |
+| Subscription | `subscription.service.ts` | What does Stripe say? |
+| Access | `access.service.ts` | What may they see? |
+
+The enforcement is one line in `product.controller.ts`:
+
+```ts
+nutrition: canViewNutrition ? product.nutrition : null,
+```
+
+Values are not blanked or zeroed — they are **never serialised**. An unentitled
+caller receives a response that does not contain them.
+
+Nothing the caller sends can influence this. `access.service.ts` and
+`subscription.service.ts` contain zero references to `req.query`, `req.headers`,
+`req.body` or `req.cookies`. Verified against ten bypass attempts — forged
+`?nutrition=true`, `?userId=1`, `Authorization` and `x-subscribed` headers,
+cookies — all returned products with no nutritional values.
+
+It also **fails closed**: if the database is unreachable we cannot prove
+entitlement, so nutrition is withheld while search keeps working.
 
 ---
 
 ## Technical decisions
 
-**Separate frontend and backend projects rather than Next.js API routes.**
-Next.js can serve backend code itself, but the assignment requires Express. Two
-independent projects, each with its own `package.json`, keep the boundary explicit
-and make it obvious which code can hold secrets.
+Forty-two decisions are recorded with their reasoning in
+[`DECISIONS.md`](DECISIONS.md). The ones most likely to raise an eyebrow:
 
-**Plain folders instead of an npm workspace / monorepo tool.** A workspace would
-allow starting both servers with one command, at the cost of configuration that
-adds no value at this size.
+**The legacy Open Food Facts endpoint.** Search uses `/cgi/search.pl`, not the
+newer `/api/v2/search`. v2 silently *ignores* free-text terms — searching
+"nutella" returned unrelated products and a count of 4.7 million. It would have
+looked like it worked while returning nonsense.
 
-**A dedicated MySQL user instead of `root`.** The application connects as
-`food_finder_app`, which has rights on two databases and nothing else. If those
-credentials leak, the rest of the MySQL server is unaffected.
+**Transforming the API response instead of forwarding it.** 200+ fields become 9.
+`null` always means "missing", where upstream uses `""`, absent fields and
+numbers-written-as-text interchangeably. And it is what makes withholding
+nutrition possible at all.
 
-**An explicit shadow database instead of a server-wide grant.** Prisma's
-documented MySQL setup asks for `CREATE, DROP, ALTER` on `*.*` so it can create a
-temporary shadow database. Granting an application user permission to drop any
-database on the server is unnecessary risk, so `food_finder_shadow` is created up
-front and the grant is scoped to it.
+**No authentication.** The assignment specifies one demo user. The property that
+matters is that the **backend** decides who the user is — no endpoint accepts a
+user id from the browser, so there is nothing to tamper with.
 
-**Configuration through environment variables.** No credential appears in source
-code, so nothing sensitive enters git history and the same code can run against a
-different database without edits.
+**Products with neither a name nor a brand are dropped.** They would render as
+blank cards; about one in five real "milk" results has no usable name. This is
+why `totalCount` is larger than the number of products returned.
 
-**Prisma 7 with `prisma7.config.ts`.** Prisma 7 moves the connection URL out of
-`schema.prisma` and into a config file that reads `process.env`. The schema
-therefore describes structure only, and can be read and shared freely.
-
-**A `Subscription` table rather than a boolean on `User`.** A boolean cannot say
-*why* access was granted or *when* it expires, and cannot be reconciled with
-Stripe. The table stores Stripe's own subscription id, so a webhook can find
-exactly the row it needs to update.
-
-**One user, many subscriptions.** Cancelling and re-subscribing produces a
-brand-new subscription object in Stripe with a new id. With a one-to-one design
-the webhook handler would have to decide whether to overwrite the previous row.
-One-to-many makes the handler a plain "insert or update by
-`stripeSubscriptionId`", and keeps the history.
-
-**`Subscription.status` stored as text, not a database enum.** Stripe's status
-values (`active`, `trialing`, `past_due`, `canceled`, ...) belong to Stripe, and
-Stripe can add new ones. A MySQL `ENUM` would reject an unknown value and make the
-webhook fail; text accepts whatever Stripe sends, and the application decides
-which values grant access.
-
-**Integer primary keys.** Simple, small, and readable while inspecting tables in
-Workbench. UUIDs would matter if ids were exposed publicly or generated across
-several machines; neither applies here.
-
-**A seed script instead of inserting the demo user by hand.** `prisma/seed.ts`
-uses an `upsert`, so it is safe to run repeatedly and any developer can recreate
-an identical starting state.
-
-**`@prisma/adapter-mariadb` as the MySQL driver.** Prisma 7 connects through a
-"driver adapter" rather than a bundled engine. The MariaDB adapter is Prisma's
-supported driver for MySQL 8.
-
-*(Decisions about Open Food Facts, internationalization and Stripe are added as
-those milestones are completed.)*
+**Upstream error messages never reach the caller.** A security test caught a
+connection string with a password reaching the HTTP response, because a
+third-party error message had been interpolated into ours. Details now go to the
+log; callers get a sentence we wrote.
 
 ---
 
 ## Known limitations
 
-- **`npm audit` reports 4 high-severity advisories** in Prisma's own dependency
-  tree (`deepmerge-ts`, `mysql2`). No patched Prisma 7 release exists yet;
-  `npm audit fix --force` "resolves" them by downgrading to Prisma 6, which is a
-  major-version downgrade rather than a fix. The advisories are in dev-time CLI
-  dependencies, and the application runs locally against a local database, so the
-  practical risk here is low. Deliberately left as-is and documented rather than
-  silently patched over.
-- **Table names are lower-cased by MySQL on Windows.** The schema defines `User`,
-  but Windows MySQL stores it as `user` (`lower_case_table_names=1`). Queries work
-  either way because Windows MySQL is case-insensitive, but a dump taken here would
-  need care before being restored on a case-sensitive Linux server.
-- The application is designed for **local development**. There is no deployment
-  configuration, HTTPS, or production hardening.
-- Everything listed under [Current status](#current-status) as unbuilt is
-  genuinely unbuilt. This README is updated as each part lands, and does not claim
-  behaviour the code does not have.
+Stated plainly rather than glossed over.
+
+- **One shared demo user.** Everyone using a deployment shares one account and
+  one search history. There is no login.
+- **No rate limiting.** `/products/search` proxies to an API that allows ~10
+  searches per minute, so an abusive caller could exhaust that budget for
+  everyone. Needs a dependency and a policy; not done.
+- **No test covers real SQL.** Prisma is replaced with a spy in the test suite.
+  The queries themselves were verified by hand in MySQL Workbench. A fuller
+  project would add a throwaway test database.
+- **The layout-overflow test is weak.** jsdom cannot measure layout, so it
+  asserts the CSS classes are present rather than that nothing overflows.
+- **Four `npm audit` advisories remain**, all in the `prisma` CLI — a
+  devDependency used for migrations, never in the request path. The only offered
+  fix is downgrading Prisma 7 → 6. Runtime dependencies are at zero.
+- **Nutri-Score is public.** The a–e grade is returned to everyone. It is printed
+  on the physical packaging, so it reads as a public label rather than "detailed
+  nutritional information" — but it is a judgement call, and reasonable people
+  could disagree.
+- **Local development only.** No deployment configuration, no HTTPS, no
+  production hardening beyond hiding internal errors and two response headers.
+- **Windows lower-cases table names.** The schema defines `User`; Windows MySQL
+  stores it as `user` (`lower_case_table_names=1`). Queries work either way here,
+  but a dump taken on Windows needs care before restoring on Linux.
+- **Open Food Facts is slow and rate-limited.** Real searches take 3–20 seconds
+  and intermittently return 503. The interface is built around that; it is not a
+  bug in this code.
 
 ---
 
-## Roadmap
+## Project layout
 
-Development follows small, individually testable milestones.
+```text
+food-finder/
+├── package.json              convenience scripts that run both halves
+├── README.md                 this file
+├── DECISIONS.md              42 technical decisions, with reasoning
+│
+├── backend/
+│   ├── API.md                the full API contract
+│   ├── db/                   one-off SQL to create the database and its user
+│   ├── prisma/
+│   │   ├── schema.prisma     the database, described once
+│   │   ├── migrations/       the SQL actually applied
+│   │   └── seed.ts           creates the demo user
+│   ├── src/
+│   │   ├── app.ts            builds the Express app (middleware order matters here)
+│   │   ├── index.ts          starts the server — nothing else
+│   │   ├── config/env.ts     every environment variable, read and validated once
+│   │   ├── routes/           which URL maps to which handler
+│   │   ├── controllers/      read the request, shape the response
+│   │   ├── services/         the actual work
+│   │   │   ├── openFoodFacts.service.ts   the only file that knows about OFF
+│   │   │   ├── access.service.ts          the access rule
+│   │   │   └── webhook.service.ts         Stripe events -> database
+│   │   ├── errors/           AppError and the database guard
+│   │   └── scripts/          diagnostics: try:search, stripe:check
+│   └── tests/                60 tests
+│
+└── frontend/
+    ├── src/app/page.tsx      owns all page state
+    ├── src/components/       presentational; no state of their own
+    ├── src/lib/api.ts        the only file that calls fetch
+    ├── src/lib/i18n/         translations and the language provider
+    └── tests/                50 tests
+```
 
-| # | Milestone | State |
-|---|---|---|
-| 0 | Architecture and plan | done |
-| 1 | Verify development environment | done |
-| 2 | Frontend + backend project structure | done |
-| 3 | MySQL database and Prisma connection | done |
-| 4 | Design the database and run the first migration | done |
-| 5 | Backend structure: routes, services, error handling | next |
-| 6-7 | Open Food Facts integration and search endpoint | planned |
-| 8-9 | Search UI, loading and error states | planned |
-| 10 | Internationalization (EN / NL / DE / FR) | planned |
-| 11-12 | Recent searches and the demo user | planned |
-| 13-15 | Stripe configuration, Checkout, webhooks | planned |
-| 16-17 | Backend-enforced access to nutritional data | planned |
-| 18 | Automated tests | planned |
-| 19-20 | Security review and edge cases | planned |
-| 21-22 | Final review and full documentation | planned |
+### Where to look first
+
+| Question | File |
+|---|---|
+| How is nutrition protected? | `backend/src/controllers/product.controller.ts` (the `canViewNutrition` line) |
+| What counts as an active subscription? | `backend/src/services/subscription.service.ts` |
+| How is Open Food Facts data cleaned up? | `backend/src/services/openFoodFacts.service.ts` |
+| Why is a webhook trusted? | `backend/src/controllers/webhook.controller.ts` |
+| What does the API return? | `backend/API.md` |
+| Why was something done that way? | `DECISIONS.md` |
